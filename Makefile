@@ -1,15 +1,19 @@
 LDFLAGS=-lfann -ljpeg -g
 CFLAGS=-g
+ALL=create fann0
 
-all: fann0 create
+all: ${ALL}
 
-fann0: main.o jpeg.o comms.o
-	gcc -o fann0 main.o jpeg.o comms.o ${LDFLAGS} -pthread
+fann0: fann0.o jpegdec.o comms.o
+	gcc -o fann0 fann0.o jpegdec.o comms.o ${LDFLAGS}
+
+#fann1: fann1.o jpegdec.o comms.o
+#	gcc -o fann1 fann1.o jpegdec.o comms.o ${LDFLAGS}
 
 create: create.o
 	gcc -o create create.o ${LDFLAGS}
 
 clean:
-	rm -f *.o create fann0
+	rm -f *.o ${ALL}
 
 

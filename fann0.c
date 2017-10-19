@@ -7,13 +7,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include "comms.h"
-
-#define KWIDTH 200
-#define KHEIGHT 150
-#define KSIZE KWIDTH*KHEIGHT
-
-int
-decompressjpg(unsigned long jsize, unsigned char *jbuf, unsigned long bsize, unsigned char *bbuf);
+#include "jpegdec.h"
 
 typedef struct threadargs_t {
 	char training;
@@ -35,7 +29,7 @@ do_loop(void *data)
 	fann_type *outputs = args->outputs;
 	struct js_event jse;
 	double v, w, x, y, t, l, r, hfd;
-	static char tf = 0;
+	static char tiltoff = 0;
 	static char gamepadon = 0;
 	int jfd = open("/dev/input/js0", O_RDONLY);
 	if (jfd < 0) {
@@ -70,7 +64,7 @@ do_loop(void *data)
 //				    (int)(l * 100.0), (int)(r * 100.0));
 			}	
 			if (jse.type == 2 && jse.number == 1) {		   
-				if (tf || !gamepadon)
+				if (tiltoff || !gamepadon)
 					continue;
 				v = jse.value / 32768.0;
 				if (v < 0) {
@@ -92,8 +86,8 @@ do_loop(void *data)
 			if (jse.type==1 && jse.number==3 && jse.value==0){
 				if (!gamepadon)
 					continue;
-				tf = !tf;
-				fprintf(stderr, "tilt: %s\n", tf? "off": "on");
+				tiltoff = !tiltoff;
+				fprintf(stderr, "tilt: %s\n", tiltoff? "off": "on");
 			}
 			if (jse.type==1 && jse.number==2 && jse.value==0){
 				args->training = !args->training;
