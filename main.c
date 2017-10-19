@@ -131,13 +131,13 @@ main(int argc, char **argv)
 	pthread_t p_thread;
 	threadargs_t args;
 
-	args.training = 1;
+	args.training = 0;
 	for (i = 1; i < argc; i++)
 		if (!strcmp(argv[i], "-h")) {
-			fprintf(stderr, "%s [-hr]\n", argv[0]);
+			fprintf(stderr, "%s [-ht]\n", argv[0]);
 			return -1;
-		} else if (!strcmp(argv[i], "-r")) {
-			args.training = 0;
+		} else if (!strcmp(argv[i], "-t")) {
+			args.training = 1;
 		}
 
 	fann_type inputs[KSIZE];
@@ -156,10 +156,8 @@ main(int argc, char **argv)
 	ann = fann_create_from_file("baby.net");
 	fprintf(stderr, "fann loaded\n");
 
-	if (args.training != 0) {
-		signal(SIGINT, &sigint);
-		thr_id = pthread_create(&p_thread, NULL, do_loop, (void*)&args);
-	}
+	signal(SIGINT, &sigint);
+	thr_id = pthread_create(&p_thread, NULL, do_loop, (void*)&args);
 
 	k = 0;
 	args.nfd = init_connection("192.168.1.6:2001");
@@ -211,7 +209,7 @@ main(int argc, char **argv)
 
 		memmove(&tmp[300+12+2], tmp, sizeof(tmp)-((300+12+2)*sizeof(fann_type)));
 		j = 0;
-		for(layer = &ann->first_layer[2]; layer < ann->last_layer; layer = &layer[1]) {
+		for(layer = &ann->first_layer[3]; layer < ann->last_layer; layer = &layer[1]) {
 			for (neuron = layer->first_neuron; neuron < layer->last_neuron; neuron = &neuron[1]) {
 				tmp[j++] = neuron->value;
 			}
