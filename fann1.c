@@ -10,7 +10,7 @@
 #include "comms.h"
 #include "jpegdec.h"
 
-#define CHANCE 100000
+#define CHANCE 10000
 
 typedef struct threadargs_t {
 	char training;
@@ -35,7 +35,7 @@ do_loop(void *data)
 	struct js_event jse;
 	double v, w, x, y, t, l, r, hfd;
 	static char tiltoff = 0;
-	static char gamepadon = 0;
+	static char gamepadon = 1;
 	struct fann_connection *c;
 	unsigned int i, n;
 	struct timeval tv;
@@ -76,12 +76,12 @@ do_loop(void *data)
 				if (tiltoff || !gamepadon)
 					continue;
 				v = jse.value / 32768.0;
-				if (v < 0) {
-					v *= 0.5;
-				} else {
-					v *= 1.5;
-				}
-				v -= 0.5;
+//				if (v < 0) {
+//					v *= 0.5;
+//				} else {
+//					v *= 1.5;
+//				}
+//				v -= 0.5;
 				t = v;
 				outputs[8] = outputs[9] = v / 4.0;
 				outputs[10] = outputs[11] = -v / 4.0;
@@ -120,7 +120,7 @@ do_loop(void *data)
 				fflush(stderr);
 				srand(tv.tv_usec);
 				for (i = rand() % (CHANCE*2); i < n;) {
-					c[i].weight = ((fann_type)rand() / RAND_MAX) - 0.5;
+					c[i].weight = (((fann_type)rand() / RAND_MAX) - 0.5) / 5.0;
 //					fprintf(stderr, "-%d-%d=>%f ", c[i].from_neuron, c[i].to_neuron, c[i].weight);
 //					fflush(stderr);
 					fann_set_weight(ann, c[i].from_neuron, c[i].to_neuron, c[i].weight);
@@ -154,14 +154,17 @@ main(int argc, char **argv)
 	int thr_id;
 	pthread_t p_thread;
 	threadargs_t args;
+	unsigned char remember = 0;
 
 	args.training = 0;
 	for (i = 1; i < argc; i++)
 		if (!strcmp(argv[i], "-h")) {
-			fprintf(stderr, "%s [-ht]\n", argv[0]);
+			fprintf(stderr, "%s [-h] [-t] [-m]\n", argv[0]);
 			return -1;
 		} else if (!strcmp(argv[i], "-t")) {
 			args.training = 1;
+		} else if (!strcmp(argv[i], "-m")) {
+			remember = 1;
 		}
 
 	fann_type inputs[KSIZE];
@@ -173,8 +176,7 @@ main(int argc, char **argv)
 	struct fann_train_data *data;
 
 	outputs[0] = outputs[1] = outputs[2] = outputs[3] = outputs[4] = outputs[5] = outputs[6] = outputs[7] = 0.0f;
-	outputs[8] = outputs[9] = -0.125f;
-	outputs[10] = outputs[11] = 0.125f;
+	outputs[8] = outputs[9] = outputs[10] = outputs[11] = 0.0f;
 	args.outputs = outputs;
 
 	ann = fann_create_from_file("baby.net");
@@ -215,14 +217,15 @@ main(int argc, char **argv)
 			data = fann_create_train(1, KSIZE, 12);
 			memcpy(*(data->input), inputs, KSIZE * sizeof(fann_type));
 			memcpy(*(data->output), outputs, 12 * sizeof(fann_type));
-			fann_train_on_data(ann, data, 5, 1, 0.0001);
+			fann_train_on_data(ann, data, 5, 1, 0.01);
 			fann_destroy_train(data);
 		}
 
 		output = fann_run(ann, inputs);
-		t = output[8] + output[9] - output[10] - output[11];
 		l = output[0] + output[1] - output[2] - output[3];
 		r = output[4] + output[5] - output[6] - output[7];
+		t = output[8] + output[9] - output[10] - output[11];
+		t = ((t + 1.0f) / 4.0f) + pow(2, t) - 1.5f;
 		fprintf(stderr, "%f %f %f\n", l, r, t);
 		hfd = open("/home/eli/kinect/tilt", O_WRONLY);
 		if (hfd > 0) {
@@ -231,16 +234,18 @@ main(int argc, char **argv)
 		}
 		dprintf(args.nfd, "l%d r%d\n", (int)(l * 100.0), (int)(r * 100.0));
 
-		memmove(&tmp[300+12+2], tmp, sizeof(tmp)-((300+12+2)*sizeof(fann_type)));
-		j = 0;
-		for(layer = &ann->first_layer[3]; layer < ann->last_layer; layer = &layer[1]) {
-			for (neuron = layer->first_neuron; neuron < layer->last_neuron; neuron = &neuron[1]) {
-				tmp[j++] = neuron->value;
+		if (remember) {
+			memmove(&tmp[300+12+2], tmp, sizeof(tmp)-((300+12+2)*sizeof(fann_type)));
+			j = 0;
+			for(layer = &ann->first_layer[3]; layer < ann->last_layer; layer = &layer[1]) {
+				for (neuron = layer->first_neuron; neuron < layer->last_neuron; neuron = &neuron[1]) {
+					tmp[j++] = neuron->value;
+				}
 			}
-		}
-		fprintf(stderr, "j: %d\n", j);
-		for (y = 0; y < (KHEIGHT/2); y++) for (x = 0; x < (KWIDTH/2); x++) {
-			inputs[(y+(KHEIGHT/2)) * KWIDTH + (x+(KWIDTH/2))] = tmp[y * (KWIDTH/2) + x];
+			fprintf(stderr, "j: %d\n", j);
+			for (y = 0; y < (KHEIGHT/2); y++) for (x = 0; x < (KWIDTH/2); x++) {
+				inputs[(y+(KHEIGHT/2)) * KWIDTH + (x+(KWIDTH/2))] = tmp[y * (KWIDTH/2) + x];
+			}
 		}
 	}
 }

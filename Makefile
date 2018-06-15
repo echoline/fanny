@@ -1,6 +1,6 @@
 LDFLAGS=-lfann -ljpeg -g
 CFLAGS=-g
-ALL=create fann0 fann1
+ALL=create hEather
 
 all: ${ALL}
 
@@ -12,6 +12,9 @@ fann1: fann1.o jpegdec.o comms.o
 
 create: create.o
 	gcc -o create create.o ${LDFLAGS}
+
+hEather: hEather.c
+	gcc -o hEather hEather.c -lX11 -lfftw3 -lm ${LDFLAGS}
 
 clean:
 	rm -f *.o ${ALL}
