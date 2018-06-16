@@ -420,8 +420,10 @@ main(int argc, char **argv) {
 		}
 		fflush(stdout);
 
+		// i don't get why this works
 		for (n = 0; n < 100; n++) {
 			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
+//			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
 		}
 		memcpy(&output[600], motors, 100 * sizeof(fann_type));
 
