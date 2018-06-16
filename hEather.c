@@ -8,6 +8,7 @@
 #include <math.h>
 #include <parallel_fann.h>
 #include <signal.h>
+#include <poll.h>
 #define EYES "/home/eli/kinect/extra.jpg"
 #define TILT "/home/eli/kinect/tilt"
 #define BRAIN "/mnt/sdc1/anns/hEather.fann"
@@ -148,6 +149,8 @@ main(int argc, char **argv) {
 	fann_type fidget, surprise, avg, sum;
 	fann_type votes[5];
 	int tilt = 0;
+	struct pollfd fds[1];
+	char strbuf[32];
 
 	ann = fann_create_from_file(BRAIN);
 	if (ann == NULL)
@@ -334,6 +337,50 @@ main(int argc, char **argv) {
 
 		memset(votes, 0, 5 * sizeof(int));
 		memcpy(motors, &results[600], 100 * sizeof(fann_type));
+
+		fds[0].fd = 0;
+		fds[0].events = POLLIN | POLLHUP;
+		while (poll(fds, 1, 0) == 1) {
+			if (fds[0].revents & POLLHUP)
+				ctrlc(SIGINT);
+			n = read(fds[0].fd, strbuf, 16);
+			if (n <= 0)
+				ctrlc(SIGINT);
+			switch (strbuf[0]) {
+				case 'w':
+					for (n = 0; n < 100; n++)
+						motors[n] = 0.0;
+					for (n = 0; n < 20; n++)
+						motors[n] = 1.0;
+					break;
+				case 'a':
+					for (n = 0; n < 100; n++)
+						motors[n] = 0.0;
+					for (n = 20; n < 40; n++)
+						motors[n] = 1.0;
+					break;
+				case 'd':
+					for (n = 0; n < 100; n++)
+						motors[n] = 0.0;
+					for (n = 40; n < 60; n++)
+						motors[n] = 1.0;
+					break;
+				case 'r':
+					for (n = 0; n < 100; n++)
+						motors[n] = 0.0;
+					for (n = 60; n < 80; n++)
+						motors[n] = 1.0;
+					break;
+				case 'f':
+					for (n = 0; n < 100; n++)
+						motors[n] = 0.0;
+					for (n = 80; n < 100; n++)
+						motors[n] = 1.0;
+				default:
+					break;
+			}
+		}
+
 		sum = 0;
 		for (n = 0; n < 100; n++) {
 			votes[n/20] += motors[n];
@@ -346,17 +393,17 @@ main(int argc, char **argv) {
 		sum /= 100.0;
 		sum -= avg * avg;
 
-		if ((votes[0]*4) > (votes[1] + votes[2] + votes[3] + votes[4]))
+		if (votes[0] > (votes[1] + votes[2] + votes[3] + votes[4]))
 			printf("w\n");
-		else if ((votes[1]*4) > (votes[0] + votes[2] + votes[3] + votes[4]))
+		if (votes[1] > (votes[0] + votes[2] + votes[3] + votes[4]))
 			printf("a\n");
-		else if ((votes[2]*4) > (votes[0] + votes[1] + votes[3] + votes[4]))
+		if (votes[2] > (votes[0] + votes[1] + votes[3] + votes[4]))
 			printf("d\n");
-		else if ((votes[3]*4) > (votes[0] + votes[1] + votes[2] + votes[4])) {
+		if (votes[3] > (votes[0] + votes[1] + votes[2] + votes[4])) {
 			if (tilt < 30)
 				tilt += 3;
 		}
-		else if ((votes[4]*4) > (votes[0] + votes[1] + votes[2] + votes[3])) {
+		if (votes[4] > (votes[0] + votes[1] + votes[2] + votes[3])) {
 			if (tilt > -30)
 				tilt -= 3;
 		}
@@ -374,7 +421,7 @@ main(int argc, char **argv) {
 		fflush(stdout);
 
 		for (n = 0; n < 100; n++) {
-			motors[n] -= (motors[n] - avg) - (0.1 - avg) * fidget;
+			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
 		}
 		memcpy(&output[600], motors, 100 * sizeof(fann_type));
 
