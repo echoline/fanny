@@ -9,19 +9,30 @@
 #include <parallel_fann.h>
 #include <signal.h>
 #include <poll.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 #define EYES "/home/eli/kinect/extra.jpg"
 #define TILT "/home/eli/kinect/tilt"
 #define BRAIN "/mnt/sdc1/anns/hEather.fann"
+#define STREAM "/home/eli/hub/mjpeg"
+#define LOCK "/tmp/streamlock"
 
 struct fann *ann = NULL;
+unsigned char running = 1;
 
 void
 ctrlc(int sig) {
 	if (sig == SIGINT) {
-		if (ann != NULL)
-			fann_save(ann, BRAIN);
-		exit(0);
+		running = 0;
 	}
+}
+
+void
+sigchld(int sig) {
+	if (sig == SIGCHLD)
+		wait(NULL);
 }
  
 unsigned char*
@@ -106,6 +117,43 @@ middleextract(int width, int height, unsigned char *data) {
 	return ret;
 }
 
+size_t
+compressjpg(int w, int h, unsigned char *in, unsigned char *out)
+{
+	struct jpeg_compress_struct cinfo;
+	struct jpeg_error_mgr jerr;
+	JSAMPROW row_pointer[1];
+	unsigned char *buf;
+	size_t buflen = 0;
+
+	cinfo.err = jpeg_std_error( &jerr );
+	jpeg_create_compress(&cinfo);
+
+	cinfo.image_width = w;
+	cinfo.image_height = h;
+	cinfo.input_components = 4;
+	cinfo.in_color_space = JCS_EXT_BGRX;
+
+	jpeg_mem_dest( &cinfo, &buf, &buflen );
+	jpeg_set_defaults( &cinfo );
+
+	jpeg_start_compress( &cinfo, TRUE );
+	while( cinfo.next_scanline < cinfo.image_height ) {
+		row_pointer[0] = &in[ cinfo.next_scanline * cinfo.image_width * cinfo.input_components];
+
+		jpeg_write_scanlines( &cinfo, row_pointer, 1 );
+	}
+
+	jpeg_finish_compress( &cinfo );
+
+	memcpy(out, buf, buflen);
+
+	jpeg_destroy_compress( &cinfo );
+	free(buf);
+
+	return buflen;
+}
+
 int
 main(int argc, char **argv) {
 	Display *d;
@@ -151,6 +199,7 @@ main(int argc, char **argv) {
 	int tilt = 0;
 	struct pollfd fds[1];
 	char strbuf[32];
+	struct stat statbuf;
 
 	ann = fann_create_from_file(BRAIN);
 	if (ann == NULL)
@@ -163,6 +212,7 @@ main(int argc, char **argv) {
 	}
 
 	signal(SIGINT, &ctrlc);
+	signal(SIGCHLD, &sigchld);
 
 	file = fopen(EYES, "rb");
 	if (file == NULL)
@@ -209,7 +259,7 @@ main(int argc, char **argv) {
 	XMapWindow(d, w);
 	gc = DefaultGC (d, s);
 
-	while (1) {
+	while (running != 0) {
 		file = fopen(EYES, "rb");
 		if (file == NULL)
 			return -1;
@@ -428,6 +478,7 @@ main(int argc, char **argv) {
 		memcpy(&output[600], motors, 100 * sizeof(fann_type));
 
 		fann_train(ann, input, output);
+
 		memmove(&lasts[1], lasts, 9*sizeof(int));
 		lasts[0] = fann_get_bit_fail(ann);
 		lowest = 600;
@@ -468,6 +519,23 @@ main(int argc, char **argv) {
 			bbuf[(15*width+n)*4] = (unsigned char)(input[n] * 255.0);
 		}
 
+		n = stat(LOCK, &statbuf);
+		if (n < 0) {
+			n = fork();
+			if (n == 0) {
+				creat(LOCK, S_IRWXU);
+				file = fopen(STREAM, "ab");
+				n = compressjpg(640, 480, bbuf, bandw);
+				fprintf(file, "--myboundary\r\nContent-Type: image/jpeg\r\n\r\n");
+				fwrite(bandw, 1, n, file);
+				fprintf(file, "\r\n");
+				fflush(file);
+				fclose(file);
+				unlink(LOCK);
+				exit(0);
+			}
+		}
+
 		i = XCreateImage(d, DefaultVisual(d, s), DefaultDepth(d, s),
 			ZPixmap, 0, bbuf, width, height, 32, width * 4);
 
@@ -486,7 +554,8 @@ main(int argc, char **argv) {
 
 		XDestroyImage(i);
 	}
- 
+
 	XCloseDisplay(d);
+	fann_save(ann, BRAIN);
 	return 0;
 }
