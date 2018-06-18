@@ -21,6 +21,7 @@
 
 struct fann *ann = NULL;
 unsigned char running = 1;
+unsigned char gotsigchld = 0;
 
 void
 ctrlc(int sig) {
@@ -32,7 +33,7 @@ ctrlc(int sig) {
 void
 sigchld(int sig) {
 	if (sig == SIGCHLD)
-		wait(NULL);
+		gotsigchld = 1;
 }
  
 unsigned char*
@@ -520,7 +521,11 @@ main(int argc, char **argv) {
 		}
 
 		n = stat(LOCK, &statbuf);
-		if (n < 0) {
+		if (running && n < 0) {
+			if (gotsigchld) {
+				wait(NULL);
+				gotsigchld = 0;
+			}
 			n = fork();
 			if (n == 0) {
 				creat(LOCK, S_IRWXU);
@@ -555,6 +560,7 @@ main(int argc, char **argv) {
 		XDestroyImage(i);
 	}
 
+	unlink(LOCK);
 	XCloseDisplay(d);
 	fann_save(ann, BRAIN);
 	return 0;
