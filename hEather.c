@@ -25,9 +25,8 @@ unsigned char gotsigchld = 0;
 
 void
 ctrlc(int sig) {
-	if (sig == SIGINT) {
+	if (sig == SIGINT)
 		running = 0;
-	}
 }
 
 void
@@ -213,7 +212,6 @@ main(int argc, char **argv) {
 	}
 
 	signal(SIGINT, &ctrlc);
-	signal(SIGCHLD, &sigchld);
 
 	file = fopen(EYES, "rb");
 	if (file == NULL)
@@ -259,6 +257,9 @@ main(int argc, char **argv) {
 	XSelectInput(d, w, ExposureMask | KeyPressMask);
 	XMapWindow(d, w);
 	gc = DefaultGC (d, s);
+
+	fds[0].fd = 0;
+	fds[0].events = POLLIN | POLLHUP;
 
 	while (running != 0) {
 		file = fopen(EYES, "rb");
@@ -389,14 +390,15 @@ main(int argc, char **argv) {
 		memset(votes, 0, 5 * sizeof(int));
 		memcpy(motors, &results[600], 100 * sizeof(fann_type));
 
-		fds[0].fd = 0;
-		fds[0].events = POLLIN | POLLHUP;
-		while (poll(fds, 1, 0) == 1) {
+		while (poll(fds, 1, 0) > 0) {
+			strbuf[0] = '\0';
 			if (fds[0].revents & POLLHUP)
 				ctrlc(SIGINT);
-			n = read(fds[0].fd, strbuf, 16);
-			if (n <= 0)
-				ctrlc(SIGINT);
+			if (fds[0].revents & POLLIN) {
+				n = read(fds[0].fd, strbuf, 16);
+				if (n <= 0)
+					ctrlc(SIGINT);
+			}
 			switch (strbuf[0]) {
 				case 'w':
 					for (n = 0; n < 100; n++)
@@ -520,24 +522,28 @@ main(int argc, char **argv) {
 			bbuf[(15*width+n)*4] = (unsigned char)(input[n] * 255.0);
 		}
 
-		n = stat(LOCK, &statbuf);
-		if (running && n < 0) {
-			if (gotsigchld) {
-				wait(NULL);
-				gotsigchld = 0;
+		if (running) {
+			n = stat(LOCK, &statbuf);
+			if (n < 0) {
+				if (running && gotsigchld == 0)
+					n = fork();
+				if (n == 0) {
+					signal(SIGINT, SIG_IGN);
+					creat(LOCK, S_IRWXU);
+					file = fopen(STREAM, "ab");
+					n = compressjpg(640, 480, bbuf, bandw);
+					fprintf(file, "--myboundary\r\nContent-Type: image/jpeg\r\n\r\n");
+					fwrite(bandw, 1, n, file);
+					fprintf(file, "\r\n");
+					fflush(file);
+					fclose(file);
+					unlink(LOCK);
+					exit(0);
+				}
 			}
-			n = fork();
-			if (n == 0) {
-				creat(LOCK, S_IRWXU);
-				file = fopen(STREAM, "ab");
-				n = compressjpg(640, 480, bbuf, bandw);
-				fprintf(file, "--myboundary\r\nContent-Type: image/jpeg\r\n\r\n");
-				fwrite(bandw, 1, n, file);
-				fprintf(file, "\r\n");
-				fflush(file);
-				fclose(file);
-				unlink(LOCK);
-				exit(0);
+			if (running && gotsigchld) {
+				if (waitpid(-1, NULL, WNOHANG) > 0)
+					gotsigchld = 0;
 			}
 		}
 
