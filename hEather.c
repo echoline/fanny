@@ -32,7 +32,7 @@ ctrlc(int sig) {
 void
 sigchld(int sig) {
 	if (sig == SIGCHLD)
-		gotsigchld = 1;
+		gotsigchld++;
 }
  
 unsigned char*
@@ -211,7 +211,8 @@ main(int argc, char **argv) {
 		lasts[n] = 600;
 	}
 
-	signal(SIGINT, &ctrlc);
+	//signal(SIGINT, &ctrlc);
+	signal(SIGCHLD, &sigchld);
 
 	file = fopen(EYES, "rb");
 	if (file == NULL)
@@ -525,7 +526,7 @@ main(int argc, char **argv) {
 		if (running) {
 			n = stat(LOCK, &statbuf);
 			if (n < 0) {
-				if (running && gotsigchld == 0)
+				if (running && (gotsigchld == 0))
 					n = fork();
 				if (n == 0) {
 					signal(SIGINT, SIG_IGN);
@@ -538,12 +539,13 @@ main(int argc, char **argv) {
 					fflush(file);
 					fclose(file);
 					unlink(LOCK);
-					exit(0);
+					return 0;
 				}
 			}
-			if (running && gotsigchld) {
-				if (waitpid(-1, NULL, WNOHANG) > 0)
-					gotsigchld = 0;
+			if (running) {
+				while ((gotsigchld > 0) && (waitpid(-1, NULL, WNOHANG) > 0)) {
+					gotsigchld--;
+				}
 			}
 		}
 
@@ -559,7 +561,7 @@ main(int argc, char **argv) {
 
 			if (e.type == KeyPress) {
 				if (e.xkey.keycode == 9)
-					break;
+					running = 0;
 			}
 		}
 
