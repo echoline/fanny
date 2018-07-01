@@ -34,7 +34,7 @@ sigchld(int sig) {
 	if (sig == SIGCHLD)
 		gotsigchld++;
 }
- 
+
 unsigned char*
 halfscalealloc(int width, int height, unsigned char *data) {
 	int length = width * height;
@@ -211,7 +211,7 @@ main(int argc, char **argv) {
 		lasts[n] = 600;
 	}
 
-	//signal(SIGINT, &ctrlc);
+//	signal(SIGINT, &ctrlc);
 	signal(SIGCHLD, &sigchld);
 
 	file = fopen(EYES, "rb");
@@ -249,7 +249,7 @@ main(int argc, char **argv) {
 	d = XOpenDisplay(NULL);
 	if (d == NULL) {
 		fprintf(stderr, "Cannot open display\n");
-		exit(1);
+		return -1;
 	}
  
 	s = DefaultScreen(d);
@@ -291,31 +291,16 @@ main(int argc, char **argv) {
 		if (pixel_size == 3) {
 			while (cinfo.output_scanline < cinfo.output_height) {
 				y = cinfo.output_scanline;
-				dy = abs(y - hheight);
 				jpeg_read_scanlines(&cinfo, &jbuf, 1);
 				for (x = 0; x < width; x++) {
-					dx = abs(x - hwidth);
-					n = 0;
-					if (dx < 160.0 && dy < 120.0)
-						if (dx < 80.0 && dy < 60.0)
-							if (dx < 40.0 && dy < 30)
-								if (dx < 20.0 && dy < 15.0)
-									n = 255;
-								else
-									n = 128;
-							else
-								n = 255;
-						else
-							n = 128;
 					o = x + y*width;
-					bbuf[o*4] = n;
 					edges[o] = bbuf[o*4+1] = jbuf[x*3];
 					depth[o] = bbuf[o*4+2] = jbuf[x*3+2];
 					bandw[o] = jbuf[x*3];
 				}
 			}
 		} else {
-			exit(1);
+			return -1;
 		}
 
 		jpeg_finish_decompress(&cinfo);
@@ -394,11 +379,11 @@ main(int argc, char **argv) {
 		while (poll(fds, 1, 0) > 0) {
 			strbuf[0] = '\0';
 			if (fds[0].revents & POLLHUP)
-				ctrlc(SIGINT);
+				goto END;
 			if (fds[0].revents & POLLIN) {
 				n = read(fds[0].fd, strbuf, 16);
 				if (n <= 0)
-					ctrlc(SIGINT);
+					goto END;
 			}
 			switch (strbuf[0]) {
 				case 'w':
@@ -568,6 +553,7 @@ main(int argc, char **argv) {
 		XDestroyImage(i);
 	}
 
+END:
 	unlink(LOCK);
 	XCloseDisplay(d);
 	fann_save(ann, BRAIN);
