@@ -6,15 +6,15 @@
 #include <unistd.h>
 #include <jpeglib.h>
 #include <math.h>
-#include <parallel_fann.h>
+#include <fann.h>
 #include <signal.h>
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
-#define EYES "/home/eli/kinect/extra.jpg"
-#define TILT "/home/eli/kinect/tilt"
+#define EYES "/mnt/kinect/extra.jpg"
+#define TILT "/mnt/kinect/tilt"
 #define BRAIN "/mnt/sdc1/anns/hEather.fann"
 #define STREAM "/home/eli/hub/mjpeg"
 #define LOCK "/tmp/streamlock"
@@ -170,17 +170,17 @@ main(int argc, char **argv) {
 	unsigned char *buf;
 	unsigned char *jbuf;
 	unsigned char *tmp;
-	unsigned char bbuf[640*480*4];
-	unsigned char depth[640*480*4];
-	unsigned char edges[640*480*4];
-	unsigned char bandw[640*480*4];
+	unsigned char *bbuf = malloc(640*480*4);
+	unsigned char *depth = malloc(640*480*4);
+	unsigned char *edges = malloc(640*480*4);
+	unsigned char *bjpeg = malloc(640*480*4);
 	unsigned char *depths[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *edgess[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *depthmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *edgesmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
-	fann_type input[60000];
-	fann_type output[1000];
-	fann_type motors[100];
+	fann_type *input = malloc(60000 * sizeof(fann_type));
+	fann_type *output = malloc(1000 * sizeof(fann_type));
+	fann_type *motors = malloc(100 * sizeof(fann_type));
 	fann_type *results;
 	fann_type deptherror, edgeserror;
 	fann_type lowestdeptherror, lowestedgeserror;
@@ -191,14 +191,14 @@ main(int argc, char **argv) {
 	int counter;
 	int lowest;
 	int highest;
-	int lasts[100];
+	int *lasts = malloc(100 * sizeof(int));
 	int lastlowest;
 	int lasthighest;
 	fann_type fidget, surprise, avg, sum;
-	fann_type votes[5];
+	fann_type *votes = malloc(5 * sizeof(fann_type));
 	int tilt = 0;
 	struct pollfd fds[1];
-	char strbuf[32];
+	char *strbuf = malloc(32);
 	struct stat statbuf;
 
 	ann = fann_create_from_file(BRAIN);
@@ -296,7 +296,6 @@ main(int argc, char **argv) {
 					o = x + y*width;
 					edges[o] = bbuf[o*4+1] = jbuf[x*3];
 					depth[o] = bbuf[o*4+2] = jbuf[x*3+2];
-					bandw[o] = jbuf[x*3];
 				}
 			}
 		} else {
@@ -517,9 +516,9 @@ main(int argc, char **argv) {
 					signal(SIGINT, SIG_IGN);
 					creat(LOCK, S_IRWXU);
 					file = fopen(STREAM, "ab");
-					n = compressjpg(640, 480, bbuf, bandw);
+					n = compressjpg(640, 480, bbuf, bjpeg);
 					fprintf(file, "--myboundary\r\nContent-Type: image/jpeg\r\n\r\n");
-					fwrite(bandw, 1, n, file);
+					fwrite(bjpeg, 1, n, file);
 					fprintf(file, "\r\n");
 					fflush(file);
 					fclose(file);
@@ -535,7 +534,8 @@ main(int argc, char **argv) {
 		}
 
 		i = XCreateImage(d, DefaultVisual(d, s), DefaultDepth(d, s),
-			ZPixmap, 0, bbuf, width, height, 32, width * 4);
+			ZPixmap, 0, 0, width, height, 32, 0);
+		i->data = bbuf;
 
 		XPutImage (d, w, gc, i, 0, 0, 0, 0, width, height);
 
@@ -550,6 +550,7 @@ main(int argc, char **argv) {
 			}
 		}
 
+		i->data = NULL;
 		XDestroyImage(i);
 	}
 
