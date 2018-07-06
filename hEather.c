@@ -294,6 +294,7 @@ main(int argc, char **argv) {
 				jpeg_read_scanlines(&cinfo, &jbuf, 1);
 				for (x = 0; x < width; x++) {
 					o = x + y*width;
+					bbuf[o*4] = 0;
 					edges[o] = bbuf[o*4+1] = jbuf[x*3];
 					depth[o] = bbuf[o*4+2] = jbuf[x*3+2];
 				}
