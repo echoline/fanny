@@ -1,4 +1,4 @@
-LDFLAGS=-g `pkg-config --libs fann` `pkg-config --libs libjpeg` `pkg-config --libs x11` -lixp
+LDFLAGS=-g `pkg-config --libs fann` `pkg-config --libs libjpeg` `pkg-config --libs x11` 
 CFLAGS=-g `pkg-config --cflags fann` `pkg-config --cflags libjpeg` `pkg-config --cflags x11`
 ALL=create hEather
 

@@ -1,5 +1,6 @@
 #include <X11/Xlib.h>
 #include <X11/IntrinsicP.h>
+#include <X11/XKBlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@
 struct fann *ann = NULL;
 unsigned char running = 1;
 unsigned char gotsigchld = 0;
+char movechar = 0;
 
 void
 ctrlc(int sig) {
@@ -35,7 +37,7 @@ sigchld(int sig) {
 		gotsigchld++;
 }
 
-unsigned char*
+static unsigned char*
 halfscalealloc(int width, int height, unsigned char *data) {
 	int length = width * height;
 	int newlength = length / 4;
@@ -62,7 +64,7 @@ halfscalealloc(int width, int height, unsigned char *data) {
 	return newdata;
 }
 
-unsigned char*
+static unsigned char*
 doublescalealloc(int width, int height, unsigned char *data) {
 	int length = width * height;
 	int newlength = length * 4;
@@ -81,7 +83,7 @@ doublescalealloc(int width, int height, unsigned char *data) {
 	return newdata;
 }
 
-unsigned char*
+static unsigned char*
 middleextract(int width, int height, unsigned char *data) {
 	unsigned char *ret;
 	int hwidth, hheight, x, y, i, j, m, n;
@@ -117,7 +119,7 @@ middleextract(int width, int height, unsigned char *data) {
 	return ret;
 }
 
-size_t
+/*size_t
 compressjpg(int w, int h, unsigned char *in, unsigned char *out)
 {
 	struct jpeg_compress_struct cinfo;
@@ -152,7 +154,7 @@ compressjpg(int w, int h, unsigned char *in, unsigned char *out)
 	free(buf);
 
 	return buflen;
-}
+}*/
 
 int
 main(int argc, char **argv) {
@@ -376,6 +378,7 @@ main(int argc, char **argv) {
 		memset(votes, 0, 5 * sizeof(int));
 		memcpy(motors, &results[600], 100 * sizeof(fann_type));
 
+		strbuf[0] = '\0';
 		while (poll(fds, 1, 0) > 0) {
 			strbuf[0] = '\0';
 			if (fds[0].revents & POLLHUP)
@@ -385,39 +388,41 @@ main(int argc, char **argv) {
 				if (n <= 0)
 					goto END;
 			}
-			switch (strbuf[0]) {
-				case 'w':
-					for (n = 0; n < 100; n++)
-						motors[n] = 0.0;
-					for (n = 0; n < 20; n++)
-						motors[n] = 1.0;
-					break;
-				case 'a':
-					for (n = 0; n < 100; n++)
-						motors[n] = 0.0;
-					for (n = 20; n < 40; n++)
-						motors[n] = 1.0;
-					break;
-				case 'd':
-					for (n = 0; n < 100; n++)
-						motors[n] = 0.0;
-					for (n = 40; n < 60; n++)
-						motors[n] = 1.0;
-					break;
-				case 'r':
-					for (n = 0; n < 100; n++)
-						motors[n] = 0.0;
-					for (n = 60; n < 80; n++)
-						motors[n] = 1.0;
-					break;
-				case 'f':
-					for (n = 0; n < 100; n++)
-						motors[n] = 0.0;
-					for (n = 80; n < 100; n++)
-						motors[n] = 1.0;
-				default:
-					break;
-			}
+		}
+		if (movechar != 0)
+			strbuf[0] = movechar;
+		switch (strbuf[0]) {
+			case 'w':
+				for (n = 0; n < 100; n++)
+					motors[n] = 0.0;
+				for (n = 0; n < 20; n++)
+					motors[n] = 1.0;
+				break;
+			case 'a':
+				for (n = 0; n < 100; n++)
+					motors[n] = 0.0;
+				for (n = 20; n < 40; n++)
+					motors[n] = 1.0;
+				break;
+			case 'd':
+				for (n = 0; n < 100; n++)
+					motors[n] = 0.0;
+				for (n = 40; n < 60; n++)
+					motors[n] = 1.0;
+				break;
+			case 'r':
+				for (n = 0; n < 100; n++)
+					motors[n] = 0.0;
+				for (n = 60; n < 80; n++)
+					motors[n] = 1.0;
+				break;
+			case 'f':
+				for (n = 0; n < 100; n++)
+					motors[n] = 0.0;
+				for (n = 80; n < 100; n++)
+					motors[n] = 1.0;
+			default:
+				break;
 		}
 
 		sum = 0;
@@ -458,6 +463,7 @@ main(int argc, char **argv) {
 			tiltfile = fopen(TILT, "a+");
 		}
 		fflush(stdout);
+		movechar = 0;
 
 		// i don't get why this works
 		for (n = 0; n < 100; n++) {
@@ -466,6 +472,9 @@ main(int argc, char **argv) {
 		}
 		memcpy(&output[600], motors, 100 * sizeof(fann_type));
 
+		//struct fann_train_data *fanndata = fann_create_train_array(1, 60000, input, 1000, output);
+		//fann_train_epoch(ann, fanndata);
+		//fann_destroy_train(fanndata);
 		fann_train(ann, input, output);
 
 		memmove(&lasts[1], lasts, 9*sizeof(int));
@@ -508,7 +517,7 @@ main(int argc, char **argv) {
 			bbuf[(15*width+n)*4] = (unsigned char)(input[n] * 255.0);
 		}
 
-		if (running) {
+		/*if (running) {
 			n = stat(LOCK, &statbuf);
 			if (n < 0) {
 				if (running && (gotsigchld == 0))
@@ -532,7 +541,7 @@ main(int argc, char **argv) {
 					gotsigchld--;
 				}
 			}
-		}
+		}*/
 
 		i = XCreateImage(d, DefaultVisual(d, s), DefaultDepth(d, s),
 			ZPixmap, 0, 0, width, height, 32, 0);
@@ -546,8 +555,28 @@ main(int argc, char **argv) {
 				XPutImage (d, w, gc, i, 0, 0, 0, 0, width, height);
 
 			if (e.type == KeyPress) {
-				if (e.xkey.keycode == 9)
+				switch(XkbKeycodeToKeysym(d, e.xkey.keycode, 0, 1)) {
+				case XK_Escape:
 					running = 0;
+					break;
+				case XK_A:
+					movechar = 'a';
+					break;
+				case XK_W:
+					movechar = 'w';
+					break;
+				case XK_D:
+					movechar = 'd';
+					break;
+				case XK_R:
+					movechar = 'r';
+					break;
+				case XK_F:
+					movechar = 'f';
+					break;
+				default:
+					break;
+				}
 			}
 		}
 
