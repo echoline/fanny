@@ -5,7 +5,7 @@
 #include <time.h>
 #include <CL/cl.h>
 #include "ann.h"
-#include <omp.h>
+#include "dot.cl"
 
 float
 activation_sigmoid(Neuron *in)
@@ -35,12 +35,12 @@ gradient_tanh(Neuron *in)
 float
 activation_leaky_relu(Neuron *in)
 {
-	if (in->sum > 1000000.0)
-		in->sum = 1000000.0;
+	if (in->sum > 10000.0)
+		in->sum = 10000.0;
 	if (in->sum > 0)
 		return in->sum;
-	if (in->sum < -1000000.0)
-		in->sum = -1000000.0;
+	if (in->sum < -10000.0)
+		in->sum = -10000.0;
 	return in->sum * 0.01;
 }
 
@@ -211,13 +211,18 @@ anncreate(int num_layers, ...)
 }
 
 float*
-annrun(Ann *ann, float *input)
+annrun(Ann *ann, float *input, cl_context context, cl_command_queue q)
 {
 	int l, i, o;
 	int outputs = ann->layers[ann->n - 1]->n;
 	float *ret = calloc(outputs, sizeof(float));
 	Neuron *O;
 	float sum;
+	float *rhs;
+	size_t sz;
+	size_t nwg;
+	float *C;
+	cl_uint status;
 
 	for (i = 0; i < ann->layers[0]->n; i++)
 		ann->layers[0]->neurons[i]->value = input[i];
@@ -227,9 +232,30 @@ annrun(Ann *ann, float *input)
 			O = ann->layers[l]->neurons[o];
 			O->sum = ann->weights[l-1]->values[ann->weights[l-1]->inputs][o]; // bias
 			sum = O->sum;
-			#pragma omp parallel for reduction(+:sum)
 			for (i = 0; i < ann->layers[l-1]->n; i++)
 				sum += ann->layers[l-1]->neurons[i]->value * ann->weights[l-1]->values[i][o];
+/*			sz = ann->layers[l-1]->n;
+			rhs = malloc(sizeof(float) * sz);
+			for (i = 0; i < sz; i++) {
+				rhs[i] = ann->weights[l-1]->values[i][o];
+			}
+			nwg = sz / 4;
+			C = malloc(sizeof(float) * nwg);
+
+			cl_mem dA = clCreateBuffer(context, CL_MEM_READ_ONLY, sz * sizeof(float), NULL, &status);
+			cl_mem dB = clCreateBuffer(context, CL_MEM_READ_ONLY, sz * sizeof(float), NULL, &status);
+			cl_mem dC = clCreateBuffer(context, CL_MEM_WRITE_ONLY, nwg * sizeof(float), NULL, &status);
+//			status = clEnqueueWriteBuffer(q, dA, CL_FALSE, 0, sz * sizeof(float), input, 0, NULL, NULL);
+//			status = clEnqueueWriteBuffer(q, dB, CL_FALSE, 0, sz * sizeof(float), rhs, 0, NULL, NULL);
+
+			free(C);
+			free(rhs);
+
+			clReleaseMemObject(dA);
+			clReleaseMemObject(dB);
+			clReleaseMemObject(dC);
+//			clReleaseKernel(dot_kernel); */
+
 			O->sum = sum;
 			O->value = O->activation(O);
 		}
@@ -242,9 +268,9 @@ annrun(Ann *ann, float *input)
 }
 
 float
-anntrain(Ann *ann, float *inputs, float *outputs)
+anntrain(Ann *ann, float *inputs, float *outputs, cl_context context, cl_command_queue q)
 {
-	float *error = annrun(ann, inputs);
+	float *error = annrun(ann, inputs, context, q);
 	float ret = 0.0;
 	int noutputs = ann->layers[ann->n-1]->n;
 	float acc, sum;
@@ -277,7 +303,6 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 			if (D2 != D) {
 				W = ann->weights[w + 1];
 				sum = 0.0;
-				#pragma omp parallel for reduction(+:sum)
 				for (n = 0; n < D2->outputs; n++)
 					sum += D2->values[o][n] * W->values[o][n];
 			}
@@ -331,9 +356,9 @@ adaminit(Ann *ann)
 }
 
 float
-anntrain_adam(Ann *ann, float *inputs, float *outputs)
+anntrain_adam(Ann *ann, float *inputs, float *outputs, cl_context context, cl_command_queue q)
 {
-	float *error = annrun(ann, inputs);
+	float *error = annrun(ann, inputs, context, q);
 	float ret = 0.0;
 	int noutputs = ann->layers[ann->n-1]->n;
 	float acc, sum, m, v;
@@ -410,9 +435,9 @@ anntrain_adam(Ann *ann, float *inputs, float *outputs)
 }
 
 float
-anntrain_adamax(Ann *ann, float *inputs, float *outputs)
+anntrain_adamax(Ann *ann, float *inputs, float *outputs, cl_context context, cl_command_queue q)
 {
-	float *error = annrun(ann, inputs);
+	float *error = annrun(ann, inputs, context, q);
 	float ret = 0.0;
 	int noutputs = ann->layers[ann->n-1]->n;
 	float acc, sum, m, v;

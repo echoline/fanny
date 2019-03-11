@@ -21,7 +21,8 @@
 #define LOCK "/tmp/streamlock"
 #include "ann.h"
 #define fann_type float
-//#include <CL/cl.h>
+#include <CL/cl.h>
+#include "dot.cl"
 
 Ann *ann = NULL;
 unsigned char running = 1;
@@ -157,7 +158,7 @@ compressjpg(int w, int h, unsigned char *in, unsigned char *out)
 	free(buf);
 
 	return buflen;
-}
+}*/
 
 void clCheckError (cl_int error)
 {
@@ -165,7 +166,7 @@ void clCheckError (cl_int error)
 		fprintf(stderr, "OpenCL call failed with error %d\n", error);
 		exit(-1);
 	}
-}*/
+}
 
 int
 main(int argc, char **argv) {
@@ -214,8 +215,8 @@ main(int argc, char **argv) {
 	char *strbuf = malloc(32);
 	struct stat statbuf;
 	char *str;
+	size_t sz;
 
-/*
 	cl_uint platformIdCount = 0;
 	clGetPlatformIDs (0, NULL, &platformIdCount);
 	fprintf(stderr, "%d OpenCL platforms found\n", platformIdCount);
@@ -227,22 +228,29 @@ main(int argc, char **argv) {
 	clGetPlatformIDs (platformIdCount, platformIds, NULL);
 
 	cl_uint deviceIdCount = 0;
-	clGetDeviceIDs (platformIds[0], CL_DEVICE_TYPE_ALL, 0, NULL, &deviceIdCount);
+	clGetDeviceIDs (platformIds[platformIdCount-1], CL_DEVICE_TYPE_ALL, 0, NULL, &deviceIdCount);
 	fprintf(stderr, "%d OpenCL devices found\n", deviceIdCount);
 
 	cl_device_id *deviceIds = malloc(deviceIdCount * sizeof(cl_device_id));
-	clGetDeviceIDs (platformIds[0], CL_DEVICE_TYPE_ALL, deviceIdCount, deviceIds, NULL);
+	clGetDeviceIDs (platformIds[platformIdCount-1], CL_DEVICE_TYPE_ALL, deviceIdCount, deviceIds, NULL);
 
 	const cl_context_properties contextProperties [] =
 	{
-		CL_CONTEXT_PLATFORM, (cl_context_properties)platformIds[0], 0, 0,
+		CL_CONTEXT_PLATFORM, (cl_context_properties)platformIds[platformIdCount-1], 0, 0,
 	};
 
 	cl_int error = CL_SUCCESS;
 	cl_context context = clCreateContext (contextProperties, deviceIdCount, deviceIds, NULL, NULL, &error);
-	cl_context context = clCreateContext (NULL, deviceIdCount, deviceIds, NULL, NULL, &error);
+//	cl_context context = clCreateContext (NULL, deviceIdCount, deviceIds, NULL, NULL, &error);
 	clCheckError (error);
-	fprintf(stderr, "OpenCL context created\n");*/
+	fprintf(stderr, "OpenCL context created\n");
+	cl_command_queue command_queue = clCreateCommandQueue(context, deviceIds[0], 0, &error);
+	clCheckError (error);
+	sz = strlen(dot_product);
+	cl_program program = clCreateProgramWithSource(context, 1, (const char**)&dot_product, &sz, &error);
+	clCheckError (error);
+	error = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
+	clCheckError (error);
 
 	ann = annload(BRAIN);
 	if (ann == NULL)
@@ -385,7 +393,7 @@ main(int argc, char **argv) {
 			}
 		}
 
-		results = annrun(ann, input);
+		results = annrun(ann, input, context, command_queue);
 		lowestdeptherror = 300;
 		lowestedgeserror = 300;
 		for (n = 0; n < 6; n++) {
@@ -529,20 +537,21 @@ main(int argc, char **argv) {
 		fprintf(stderr, "fidget: %2f\tsurprise: %10f mvar: %10f mavg: %10f\n", fidget, surprise, sum, avg);
 
 		if (lastfidget == 1.0)
-			for (n = 0; n < 10; n++)
-				motors[rand() % 100] = rand() & 1;
+			for (n = 0; n < counter; n++)
+				motors[rand() % 100] = (float)(rand() & 1);
 
-		for (n = 0; n < 100; n++) {
-			motors[n] -= (0.2 - avg) * (-0.5 + motors[n]) * fidget;
+		// TODO ???
+//		for (n = 0; n < 100; n++) {
+//			motors[n] -= (0.2 - avg) - (motors[n] - avg) * fidget;
 //			motors[n] -= (motors[n] - avg) - (avg - 0.2) * fidget;
 //			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
 //			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
-		}
+//		}
 
 		lastfidget = fidget;
 		memcpy(&output[600], motors, 100 * sizeof(fann_type));
 		memmove(&lasts[1], lasts, 9*sizeof(int));
-		lasts[0] = anntrain(ann, input, output);
+		lasts[0] = anntrain(ann, input, output, context, command_queue);
 
 		memmove(&input[3600], input, 32400*sizeof(fann_type));
 		for (y = 0; y < 15; y++) for(x = 0; x < 120; x++) {
