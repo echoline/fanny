@@ -1,6 +1,6 @@
-LDFLAGS=-g `pkg-config --libs fann` `pkg-config --libs libjpeg` `pkg-config --libs x11` 
-CFLAGS=-g `pkg-config --cflags fann` `pkg-config --cflags libjpeg` `pkg-config --cflags x11`
-ALL=create hEather
+LDFLAGS=-g `pkg-config --libs libjpeg` `pkg-config --libs x11` -fopenmp
+CFLAGS=-g `pkg-config --cflags libjpeg` `pkg-config --cflags x11` -fopenmp
+ALL=hEather
 
 all: ${ALL}
 
@@ -13,8 +13,8 @@ fann1: fann1.o jpegdec.o comms.o
 create: create.o
 	gcc -o create create.o ${LDFLAGS}
 
-hEather: hEather.o
-	gcc -o hEather hEather.o -lX11 -lm ${LDFLAGS}
+hEather: hEather.o ann.o
+	gcc -o hEather hEather.o -lX11 -lm ${LDFLAGS} ann.o
 
 clean:
 	rm -f *.o ${ALL}

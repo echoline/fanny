@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <jpeglib.h>
 #include <math.h>
-#include <fann.h>
+//#include <fann.h>
 #include <signal.h>
 #include <poll.h>
 #include <sys/types.h>
@@ -16,11 +16,14 @@
 #include <fcntl.h>
 #define EYES "/mnt/kinect/extra.jpg"
 #define TILT "/mnt/kinect/tilt"
-#define BRAIN "/mnt/sdc1/anns/hEather.fann"
+#define BRAIN "/mnt/sdc1/anns/hEather.ann"
 #define STREAM "/home/eli/hub/mjpeg"
 #define LOCK "/tmp/streamlock"
+#include "ann.h"
+#define fann_type float
+//#include <CL/cl.h>
 
-struct fann *ann = NULL;
+Ann *ann = NULL;
 unsigned char running = 1;
 unsigned char gotsigchld = 0;
 char movechar = 0;
@@ -154,6 +157,14 @@ compressjpg(int w, int h, unsigned char *in, unsigned char *out)
 	free(buf);
 
 	return buflen;
+}
+
+void clCheckError (cl_int error)
+{
+	if (error != CL_SUCCESS) {
+		fprintf(stderr, "OpenCL call failed with error %d\n", error);
+		exit(-1);
+	}
 }*/
 
 int
@@ -187,7 +198,7 @@ main(int argc, char **argv) {
 	fann_type deptherror, edgeserror;
 	fann_type lowestdeptherror, lowestedgeserror;
 	int depthwinner, edgeswinner;
-	struct fann_neuron *neuron;
+	Neuron **neuron;
 	FILE *file, *tiltfile;
 	int dx, dy;
 	int counter;
@@ -196,17 +207,46 @@ main(int argc, char **argv) {
 	int *lasts = malloc(100 * sizeof(int));
 	int lastlowest;
 	int lasthighest;
-	fann_type fidget, surprise, avg, sum;
+	fann_type fidget, surprise, avg, sum, lastfidget = 0;
 	fann_type *votes = malloc(5 * sizeof(fann_type));
 	int tilt = 0;
 	struct pollfd fds[1];
 	char *strbuf = malloc(32);
 	struct stat statbuf;
+	char *str;
 
-	ann = fann_create_from_file(BRAIN);
+/*
+	cl_uint platformIdCount = 0;
+	clGetPlatformIDs (0, NULL, &platformIdCount);
+	fprintf(stderr, "%d OpenCL platforms found\n", platformIdCount);
+
+	if (platformIdCount == 0)
+		return -1;
+
+	cl_platform_id *platformIds = malloc(platformIdCount * sizeof(cl_platform_id));
+	clGetPlatformIDs (platformIdCount, platformIds, NULL);
+
+	cl_uint deviceIdCount = 0;
+	clGetDeviceIDs (platformIds[0], CL_DEVICE_TYPE_ALL, 0, NULL, &deviceIdCount);
+	fprintf(stderr, "%d OpenCL devices found\n", deviceIdCount);
+
+	cl_device_id *deviceIds = malloc(deviceIdCount * sizeof(cl_device_id));
+	clGetDeviceIDs (platformIds[0], CL_DEVICE_TYPE_ALL, deviceIdCount, deviceIds, NULL);
+
+	const cl_context_properties contextProperties [] =
+	{
+		CL_CONTEXT_PLATFORM, (cl_context_properties)platformIds[0], 0, 0,
+	};
+
+	cl_int error = CL_SUCCESS;
+	cl_context context = clCreateContext (contextProperties, deviceIdCount, deviceIds, NULL, NULL, &error);
+	cl_context context = clCreateContext (NULL, deviceIdCount, deviceIds, NULL, NULL, &error);
+	clCheckError (error);
+	fprintf(stderr, "OpenCL context created\n");*/
+
+	ann = annload(BRAIN);
 	if (ann == NULL)
 		return -1;
-	fann_set_activation_function_hidden(ann, FANN_LINEAR_PIECE_LEAKY);
 	memset(input, 0, 60000*sizeof(fann_type));
 	memset(output, 0, 1000*sizeof(fann_type));
 	for (n = 0; n < 100; n++) {
@@ -345,7 +385,7 @@ main(int argc, char **argv) {
 			}
 		}
 
-		results = fann_run(ann, input);
+		results = annrun(ann, input);
 		lowestdeptherror = 300;
 		lowestedgeserror = 300;
 		for (n = 0; n < 6; n++) {
@@ -364,7 +404,6 @@ main(int argc, char **argv) {
 				edgeswinner = n;
 			}
 		}
-//		depthwinner = edgeswinner = 5;
 		memcpy(&output[700], &results[700], 300*sizeof(fann_type));
 		for (n = 0; n < 300; n++) {
 			output[n] = depthmiddles[depthwinner][n] / 255.0;
@@ -394,39 +433,43 @@ main(int argc, char **argv) {
 		switch (strbuf[0]) {
 			case 'w':
 				for (n = 0; n < 100; n++)
-					motors[n] = 0.0;
+					motors[n] *= 0.05;
 				for (n = 0; n < 20; n++)
-					motors[n] = 1.0;
+					motors[rand() % 20] = 1.0;
 				break;
 			case 'a':
 				for (n = 0; n < 100; n++)
-					motors[n] = 0.0;
+					motors[n] *= 0.05;
 				for (n = 20; n < 40; n++)
-					motors[n] = 1.0;
+					motors[20 + rand() % 20] = 1.0;
 				break;
 			case 'd':
 				for (n = 0; n < 100; n++)
-					motors[n] = 0.0;
+					motors[n] *= 0.05;
 				for (n = 40; n < 60; n++)
-					motors[n] = 1.0;
+					motors[40 + rand() % 20] = 1.0;
 				break;
 			case 'r':
 				for (n = 0; n < 100; n++)
-					motors[n] = 0.0;
+					motors[n] *= 0.05;
 				for (n = 60; n < 80; n++)
-					motors[n] = 1.0;
+					motors[60 + rand() % 20] = 1.0;
 				break;
 			case 'f':
 				for (n = 0; n < 100; n++)
-					motors[n] = 0.0;
+					motors[n] *= 0.05;
 				for (n = 80; n < 100; n++)
-					motors[n] = 1.0;
+					motors[80 + rand() % 20] = 1.0;
 			default:
 				break;
 		}
 
 		sum = 0;
 		for (n = 0; n < 100; n++) {
+			if (motors[n] < 0.001)
+				motors[n] = 0.001;
+			else if (motors[n] > 0.99)
+				motors[n] = 0.99;
 			votes[n/20] += motors[n];
 			sum += motors[n];
 		}
@@ -465,20 +508,6 @@ main(int argc, char **argv) {
 		fflush(stdout);
 		movechar = 0;
 
-		// i don't get why this works
-		for (n = 0; n < 100; n++) {
-			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
-//			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
-		}
-		memcpy(&output[600], motors, 100 * sizeof(fann_type));
-
-		//struct fann_train_data *fanndata = fann_create_train_array(1, 60000, input, 1000, output);
-		//fann_train_epoch(ann, fanndata);
-		//fann_destroy_train(fanndata);
-		fann_train(ann, input, output);
-
-		memmove(&lasts[1], lasts, 9*sizeof(int));
-		lasts[0] = fann_get_bit_fail(ann);
 		lowest = 600;
 		highest = 0;
 		for (n = 0; n < 10; n++) {
@@ -493,12 +522,27 @@ main(int argc, char **argv) {
 			counter++;
 		lastlowest = lowest;
 		lasthighest = highest;
-		fann_reset_MSE(ann);
 		fidget = counter / 10.0;
 		if (fidget > 1.0)
 			fidget = 1.0;
 		surprise = (lasthighest + lastlowest) / 100.0;
 		fprintf(stderr, "fidget: %2f\tsurprise: %10f mvar: %10f mavg: %10f\n", fidget, surprise, sum, avg);
+
+		if (lastfidget == 1.0)
+			for (n = 0; n < 10; n++)
+				motors[rand() % 100] = rand() & 1;
+
+		for (n = 0; n < 100; n++) {
+			motors[n] -= (0.2 - avg) * (-0.5 + motors[n]) * fidget;
+//			motors[n] -= (motors[n] - avg) - (avg - 0.2) * fidget;
+//			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
+//			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
+		}
+
+		lastfidget = fidget;
+		memcpy(&output[600], motors, 100 * sizeof(fann_type));
+		memmove(&lasts[1], lasts, 9*sizeof(int));
+		lasts[0] = anntrain(ann, input, output);
 
 		memmove(&input[3600], input, 32400*sizeof(fann_type));
 		for (y = 0; y < 15; y++) for(x = 0; x < 120; x++) {
@@ -507,9 +551,10 @@ main(int argc, char **argv) {
 		}
 		memmove(&input[36000+2000], &input[36000], 21000*sizeof(fann_type));
 		memcpy(&input[36000], results, 1000*sizeof(fann_type));
-		neuron = ann->first_layer[2].first_neuron;
+		free(results);
+		neuron = ann->layers[2]->neurons;
 		for (n = 0; n < 1000; n++)
-			input[36000+1000+n] = neuron[n].value;
+			input[36000+1000+n] = neuron[n]->value;
 		input[59001] = fidget;
 		input[59002] = surprise;
 
@@ -587,6 +632,6 @@ main(int argc, char **argv) {
 END:
 	unlink(LOCK);
 	XCloseDisplay(d);
-	fann_save(ann, BRAIN);
+	annsave(ann, BRAIN);
 	return 0;
 }
