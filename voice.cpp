@@ -45,8 +45,7 @@ main() {
 				c = results[i] * 128.0;
 				std::cout << c;	
 			} else {
-				c = 0;
-				std::cout << c;
+				std::cout << '\0';
 			}
 		}
 		fann_train(ann, input, output);
@@ -55,10 +54,9 @@ main() {
 			input[i] = output[i];
 		}
 		neuron = ann->first_layer[2].first_neuron;
-		memmove(&input[550], &input[500], 450);
-		for (i = 0; i < 25; i++) {
+		for (i = 0; i < 250; i++) {
 			input[i+500] = neuron[i].value;
-			input[i+525] = output[25+i];
+			input[i+750] = output[200+i];
 		}
 	}
 
