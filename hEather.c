@@ -7,26 +7,25 @@
 #include <unistd.h>
 #include <jpeglib.h>
 #include <math.h>
-//#include <fann.h>
+#include <parallel_fann.h>
 #include <signal.h>
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <errno.h>
 #define EYES "/mnt/kinect/extra.jpg"
 #define TILT "/mnt/kinect/tilt"
-#define BRAIN "/mnt/sdc1/anns/hEather.ann"
-#define STREAM "/home/eli/hub/mjpeg"
+#define BRAIN "/mnt/sdc1/anns/hEather.fann"
+#define STREAM "echoline.org:9000"
 #define LOCK "/tmp/streamlock"
-#include "ann.h"
-#define fann_type float
-#include <CL/cl.h>
-#include "dot.cl"
+#include "comms.h"
 
-Ann *ann = NULL;
+struct fann *ann = NULL;
 unsigned char running = 1;
-unsigned char gotsigchld = 0;
+unsigned char gotsigchld = 1;
 char movechar = 0;
 
 void
@@ -123,7 +122,7 @@ middleextract(int width, int height, unsigned char *data) {
 	return ret;
 }
 
-/*size_t
+size_t
 compressjpg(int w, int h, unsigned char *in, unsigned char *out)
 {
 	struct jpeg_compress_struct cinfo;
@@ -158,14 +157,6 @@ compressjpg(int w, int h, unsigned char *in, unsigned char *out)
 	free(buf);
 
 	return buflen;
-}*/
-
-void clCheckError (cl_int error)
-{
-	if (error != CL_SUCCESS) {
-		fprintf(stderr, "OpenCL call failed with error %d\n", error);
-		exit(-1);
-	}
 }
 
 int
@@ -182,79 +173,124 @@ main(int argc, char **argv) {
 	int row_stride, width, height, pixel_size;
 	int hwidth, hheight;
 	unsigned char *buf;
-	unsigned char *jbuf;
+	unsigned char *jbuf = malloc(640*4 + 1);
 	unsigned char *tmp;
-	unsigned char *bbuf = malloc(640*480*4);
-	unsigned char *depth = malloc(640*480*4);
-	unsigned char *edges = malloc(640*480*4);
-	unsigned char *bjpeg = malloc(640*480*4);
 	unsigned char *depths[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *edgess[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *depthmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *edgesmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
-	fann_type *input = malloc(60000 * sizeof(fann_type));
-	fann_type *output = malloc(1000 * sizeof(fann_type));
-	fann_type *motors = malloc(100 * sizeof(fann_type));
+	unsigned char *bbuf = malloc(640*480*4);
 	fann_type *results;
 	fann_type deptherror, edgeserror;
 	fann_type lowestdeptherror, lowestedgeserror;
 	int depthwinner, edgeswinner;
-	Neuron **neuron;
+	struct fann_neuron *neuron;
 	FILE *file, *tiltfile;
 	int dx, dy;
 	int counter;
 	int lowest;
 	int highest;
-	int *lasts = malloc(100 * sizeof(int));
 	int lastlowest;
 	int lasthighest;
-	fann_type fidget, surprise, avg, sum, lastfidget = 0;
-	fann_type *votes = malloc(5 * sizeof(fann_type));
+	fann_type fidget, surprise, avg, sum;
 	int tilt = 0;
 	struct pollfd fds[1];
-	char *strbuf = malloc(32);
 	struct stat statbuf;
-	char *str;
-	size_t sz;
+	pid_t pid;
+	int jpegpipe[2];
+	unsigned char *depth;
+	unsigned char *edges;
+	unsigned char *bjpeg;
+	fann_type *input;
+	fann_type *output;
+	fann_type *motors;
+	int *lasts;
+	fann_type *votes;
+	char *strbuf;
+	int nfd;
 
-	cl_uint platformIdCount = 0;
-	clGetPlatformIDs (0, NULL, &platformIdCount);
-	fprintf(stderr, "%d OpenCL platforms found\n", platformIdCount);
-
-	if (platformIdCount == 0)
-		return -1;
-
-	cl_platform_id *platformIds = malloc(platformIdCount * sizeof(cl_platform_id));
-	clGetPlatformIDs (platformIdCount, platformIds, NULL);
-
-	cl_uint deviceIdCount = 0;
-	clGetDeviceIDs (platformIds[platformIdCount-1], CL_DEVICE_TYPE_ALL, 0, NULL, &deviceIdCount);
-	fprintf(stderr, "%d OpenCL devices found\n", deviceIdCount);
-
-	cl_device_id *deviceIds = malloc(deviceIdCount * sizeof(cl_device_id));
-	clGetDeviceIDs (platformIds[platformIdCount-1], CL_DEVICE_TYPE_ALL, deviceIdCount, deviceIds, NULL);
-
-	const cl_context_properties contextProperties [] =
-	{
-		CL_CONTEXT_PLATFORM, (cl_context_properties)platformIds[platformIdCount-1], 0, 0,
-	};
-
-	cl_int error = CL_SUCCESS;
-	cl_context context = clCreateContext (contextProperties, deviceIdCount, deviceIds, NULL, NULL, &error);
-//	cl_context context = clCreateContext (NULL, deviceIdCount, deviceIds, NULL, NULL, &error);
-	clCheckError (error);
-	fprintf(stderr, "OpenCL context created\n");
-	cl_command_queue command_queue = clCreateCommandQueue(context, deviceIds[0], 0, &error);
-	clCheckError (error);
-	sz = strlen(dot_product);
-	cl_program program = clCreateProgramWithSource(context, 1, (const char**)&dot_product, &sz, &error);
-	clCheckError (error);
-	error = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
-	clCheckError (error);
-
-	ann = annload(BRAIN);
+	ann = fann_create_from_file(BRAIN);
 	if (ann == NULL)
 		return -1;
+	fann_set_activation_function_hidden(ann, FANN_LINEAR_PIECE_LEAKY);
+
+	if (pipe(jpegpipe) == -1)
+		return -1;
+
+	pid = fork();
+	if (pid == -1)
+		return -1;
+
+	if (pid == 0) {
+		close(jpegpipe[0]);
+
+		while(1) {
+			file = fopen(EYES, "rb");
+			if (file == NULL)
+				return -1;
+
+			cinfo.err = jpeg_std_error(&jerr);
+			jpeg_create_decompress(&cinfo);
+			jpeg_stdio_src(&cinfo, file);
+
+			rc = jpeg_read_header(&cinfo, FALSE);
+			if (rc != 1) {
+				jpeg_destroy_decompress(&cinfo);
+				fprintf(stderr, "error: jpeg_read_header\n");
+				continue;
+			}
+
+			jpeg_start_decompress(&cinfo);
+			width = cinfo.output_width;
+			height = cinfo.output_height;
+			pixel_size = cinfo.output_components;
+			row_stride = width * pixel_size;
+
+			if (pixel_size == 3) {
+				while (cinfo.output_scanline < cinfo.output_height) {
+					y = cinfo.output_scanline;
+					jpeg_read_scanlines(&cinfo, &jbuf, 1);
+					for (x = 0; x < width; x++) {
+						o = x + y*width;
+						bbuf[o*4] = 0;
+						bbuf[o*4+1] = jbuf[x*3];
+						bbuf[o*4+2] = jbuf[x*3+2];
+					}
+				}
+			} else {
+				return -1;
+			}
+
+			jpeg_finish_decompress(&cinfo);
+			jpeg_destroy_decompress(&cinfo);
+
+			fclose(file);
+
+			o = 640 * 480 * 4;
+			do {
+				rc = write(jpegpipe[1], &bbuf[640*480*4-o], o);
+				if (rc <= 0) {
+					perror("write: jpegpipe[1]");
+					break;
+				}
+				o -= rc;
+			} while(o > 0);
+		}
+		return 0;
+	}
+	fprintf(stderr, "camera child pid: %d\n", pid);
+	close(jpegpipe[1]);
+
+	depth = malloc(640*480*4);
+	edges = malloc(640*480*4);
+	bjpeg = malloc(640*480*4);
+	input = malloc(60000 * sizeof(fann_type));
+	output = malloc(1000 * sizeof(fann_type));
+	motors = malloc(100 * sizeof(fann_type));
+	lasts = malloc(100 * sizeof(int));
+	votes = malloc(5 * sizeof(fann_type));
+	strbuf = malloc(32);
+
 	memset(input, 0, 60000*sizeof(fann_type));
 	memset(output, 0, 1000*sizeof(fann_type));
 	for (n = 0; n < 100; n++) {
@@ -267,8 +303,6 @@ main(int argc, char **argv) {
 	file = fopen(EYES, "rb");
 	if (file == NULL)
 		return -1;
-
-	tiltfile = fopen(TILT, "a+");
 
 	cinfo.err = jpeg_std_error(&jerr);
 	jpeg_create_decompress(&cinfo);
@@ -284,10 +318,10 @@ main(int argc, char **argv) {
 	jpeg_start_decompress(&cinfo);
 	width = cinfo.output_width;
 	height = cinfo.output_height;
+	hwidth = width / 2;
+	hheight = height / 2;
 	pixel_size = cinfo.output_components;
 	row_stride = width * pixel_size;
-
-	jbuf = malloc(row_stride + 1);
 
 	while (cinfo.output_scanline < cinfo.output_height)
 		jpeg_read_scanlines(&cinfo, &jbuf, 1);
@@ -312,51 +346,25 @@ main(int argc, char **argv) {
 	fds[0].fd = 0;
 	fds[0].events = POLLIN | POLLHUP;
 
+	nfd = init_connection(STREAM);
+
 	while (running != 0) {
-		file = fopen(EYES, "rb");
-		if (file == NULL)
-			return -1;
-
-		cinfo.err = jpeg_std_error(&jerr);
-		jpeg_create_decompress(&cinfo);
-		jpeg_stdio_src(&cinfo, file);
-
-		rc = jpeg_read_header(&cinfo, FALSE);
-		if (rc != 1) {
-			jpeg_destroy_decompress(&cinfo);
-			fprintf(stderr, "error: jpeg_read_header\n");
-			continue;
-		}
-
-		jpeg_start_decompress(&cinfo);
-		width = cinfo.output_width;
-		height = cinfo.output_height;
-		hwidth = width / 2;
-		hheight = height / 2;
-		pixel_size = cinfo.output_components;
-		row_stride = width * pixel_size;
-
-//		fprintf(stderr, "%d %d %d %d\n", width, height, pixel_size, row_stride);
-
-		if (pixel_size == 3) {
-			while (cinfo.output_scanline < cinfo.output_height) {
-				y = cinfo.output_scanline;
-				jpeg_read_scanlines(&cinfo, &jbuf, 1);
-				for (x = 0; x < width; x++) {
-					o = x + y*width;
-					bbuf[o*4] = 0;
-					edges[o] = bbuf[o*4+1] = jbuf[x*3];
-					depth[o] = bbuf[o*4+2] = jbuf[x*3+2];
-				}
+		o = 640 * 480 * 4;
+		do {
+			rc = read(jpegpipe[0], &bbuf[640*480*4 - o], o);
+			if (rc <= 0) {
+				perror("read: jpegpipe[0]");
+				break;
 			}
-		} else {
-			return -1;
+			o -= rc;
+		} while(o > 0);
+
+		if (o > 0) fprintf(stderr, "partial image read: %d bytes left\n", o);
+
+		for (o = 640 * 480 - 1; o >= 0; o--) {
+			edges[o] = bbuf[o*4+1];
+			depth[o] = bbuf[o*4+2];
 		}
-
-		jpeg_finish_decompress(&cinfo);
-		jpeg_destroy_decompress(&cinfo);
-
-		fclose(file);
 
 		if (edgesmiddles[0] != NULL) free(edgesmiddles[0]);
 		edgesmiddles[0] = middleextract(width, height, edges);
@@ -393,7 +401,7 @@ main(int argc, char **argv) {
 			}
 		}
 
-		results = annrun(ann, input, context, command_queue);
+		results = fann_run(ann, input);
 		lowestdeptherror = 300;
 		lowestedgeserror = 300;
 		for (n = 0; n < 6; n++) {
@@ -412,6 +420,7 @@ main(int argc, char **argv) {
 				edgeswinner = n;
 			}
 		}
+//		depthwinner = edgeswinner = 5;
 		memcpy(&output[700], &results[700], 300*sizeof(fann_type));
 		for (n = 0; n < 300; n++) {
 			output[n] = depthmiddles[depthwinner][n] / 255.0;
@@ -467,17 +476,13 @@ main(int argc, char **argv) {
 				for (n = 0; n < 100; n++)
 					motors[n] *= 0.05;
 				for (n = 80; n < 100; n++)
-					motors[80 + rand() % 20] = 1.0;
+					motors[n] = 1.0;
 			default:
 				break;
 		}
 
 		sum = 0;
 		for (n = 0; n < 100; n++) {
-			if (motors[n] < 0.001)
-				motors[n] = 0.001;
-			else if (motors[n] > 0.99)
-				motors[n] = 0.99;
 			votes[n/20] += motors[n];
 			sum += motors[n];
 		}
@@ -516,6 +521,20 @@ main(int argc, char **argv) {
 		fflush(stdout);
 		movechar = 0;
 
+		// i don't get why this works
+		for (n = 0; n < 100; n++) {
+			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
+//			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
+		}
+		memcpy(&output[600], motors, 100 * sizeof(fann_type));
+
+//		struct fann_train_data *fanndata = fann_create_train_array(1, 60000, input, 1000, output);
+//		fann_train_epoch(ann, fanndata);
+//		fann_destroy_train(fanndata);
+		fann_train(ann, input, output);
+
+		memmove(&lasts[1], lasts, 9*sizeof(int));
+		lasts[0] = fann_get_bit_fail(ann);
 		lowest = 600;
 		highest = 0;
 		for (n = 0; n < 10; n++) {
@@ -530,28 +549,12 @@ main(int argc, char **argv) {
 			counter++;
 		lastlowest = lowest;
 		lasthighest = highest;
+		fann_reset_MSE(ann);
 		fidget = counter / 10.0;
 		if (fidget > 1.0)
 			fidget = 1.0;
 		surprise = (lasthighest + lastlowest) / 100.0;
 		fprintf(stderr, "fidget: %2f\tsurprise: %10f mvar: %10f mavg: %10f\n", fidget, surprise, sum, avg);
-
-		if (lastfidget == 1.0)
-			for (n = 0; n < counter; n++)
-				motors[rand() % 100] = (float)(rand() & 1);
-
-		// TODO ???
-//		for (n = 0; n < 100; n++) {
-//			motors[n] -= (0.2 - avg) - (motors[n] - avg) * fidget;
-//			motors[n] -= (motors[n] - avg) - (avg - 0.2) * fidget;
-//			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
-//			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
-//		}
-
-		lastfidget = fidget;
-		memcpy(&output[600], motors, 100 * sizeof(fann_type));
-		memmove(&lasts[1], lasts, 9*sizeof(int));
-		lasts[0] = anntrain(ann, input, output, context, command_queue);
 
 		memmove(&input[3600], input, 32400*sizeof(fann_type));
 		for (y = 0; y < 15; y++) for(x = 0; x < 120; x++) {
@@ -560,10 +563,9 @@ main(int argc, char **argv) {
 		}
 		memmove(&input[36000+2000], &input[36000], 21000*sizeof(fann_type));
 		memcpy(&input[36000], results, 1000*sizeof(fann_type));
-		free(results);
-		neuron = ann->layers[2]->neurons;
+		neuron = ann->first_layer[2].first_neuron;
 		for (n = 0; n < 1000; n++)
-			input[36000+1000+n] = neuron[n]->value;
+			input[36000+1000+n] = neuron[n].value;
 		input[59001] = fidget;
 		input[59002] = surprise;
 
@@ -571,31 +573,27 @@ main(int argc, char **argv) {
 			bbuf[(15*width+n)*4] = (unsigned char)(input[n] * 255.0);
 		}
 
-		/*if (running) {
+		if (running && nfd != -1) {
 			n = stat(LOCK, &statbuf);
 			if (n < 0) {
-				if (running && (gotsigchld == 0))
+				if (running && (gotsigchld == 1))
 					n = fork();
 				if (n == 0) {
 					signal(SIGINT, SIG_IGN);
 					creat(LOCK, S_IRWXU);
-					file = fopen(STREAM, "ab");
 					n = compressjpg(640, 480, bbuf, bjpeg);
-					fprintf(file, "--myboundary\r\nContent-Type: image/jpeg\r\n\r\n");
-					fwrite(bjpeg, 1, n, file);
-					fprintf(file, "\r\n");
-					fflush(file);
-					fclose(file);
+					dprintf(nfd, "--ffserver\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", n);
+					write(nfd, bjpeg, n);
 					unlink(LOCK);
 					return 0;
 				}
 			}
 			if (running) {
-				while ((gotsigchld > 0) && (waitpid(-1, NULL, WNOHANG) > 0)) {
+				while ((gotsigchld > 1) && (waitpid(-1, NULL, WNOHANG) > 0)) {
 					gotsigchld--;
 				}
 			}
-		}*/
+		}
 
 		i = XCreateImage(d, DefaultVisual(d, s), DefaultDepth(d, s),
 			ZPixmap, 0, 0, width, height, 32, 0);
@@ -641,6 +639,6 @@ main(int argc, char **argv) {
 END:
 	unlink(LOCK);
 	XCloseDisplay(d);
-	annsave(ann, BRAIN);
+	fann_save(ann, BRAIN);
 	return 0;
 }
