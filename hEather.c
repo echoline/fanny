@@ -512,11 +512,13 @@ main(int argc, char **argv) {
 				fclose(tiltfile);
 				tiltfile = NULL;
 			} else {
+				memmove(&input[59006], &input[59001], 990);
 				fscanf(tiltfile, "%d %f %f %f\n", &tilt, &input[59003], &input[59004], &input[59005]);
 			}
 		}
 		else {
 			tiltfile = fopen(TILT, "a+");
+			fprintf(stderr, "reopening tiltfile\n");
 		}
 		fflush(stdout);
 		movechar = 0;
