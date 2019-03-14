@@ -476,7 +476,7 @@ main(int argc, char **argv) {
 				for (n = 0; n < 100; n++)
 					motors[n] *= 0.05;
 				for (n = 80; n < 100; n++)
-					motors[n] = 1.0;
+					motors[80 + rand() % 20] = 1.0;
 			default:
 				break;
 		}
