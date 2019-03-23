@@ -137,7 +137,7 @@ main(int argc, char **argv) {
 	fann_type lowestdeptherror, lowestedgeserror;
 	int depthwinner, edgeswinner;
 	struct fann_neuron *neuron;
-	FILE *file, *tiltfile;
+	FILE *file, *tiltfile = NULL;
 	int dx, dy;
 	int counter;
 	int lowest;
@@ -164,6 +164,7 @@ main(int argc, char **argv) {
 	if (ann == NULL)
 		return -1;
 	fann_set_activation_function_hidden(ann, FANN_LINEAR_PIECE_LEAKY);
+	fann_set_activation_function_output(ann, FANN_SIGMOID);
 
 	if (pipe(jpegpipe) == -1)
 		return -1;
@@ -435,15 +436,15 @@ main(int argc, char **argv) {
 
 		if (votes[0] > (votes[1] + votes[2] + votes[3] + votes[4]))
 			printf("w\n");
-		if (votes[1] > (votes[0] + votes[2] + votes[3] + votes[4]))
+		else if (votes[1] > (votes[0] + votes[2] + votes[3] + votes[4]))
 			printf("a\n");
-		if (votes[2] > (votes[0] + votes[1] + votes[3] + votes[4]))
+		else if (votes[2] > (votes[0] + votes[1] + votes[3] + votes[4]))
 			printf("d\n");
-		if (votes[3] > (votes[0] + votes[1] + votes[2] + votes[4])) {
+		else if (votes[3] > (votes[0] + votes[1] + votes[2] + votes[4])) {
 			if (tilt < 30)
 				tilt += 3;
 		}
-		if (votes[4] > (votes[0] + votes[1] + votes[2] + votes[3])) {
+		else if (votes[4] > (votes[0] + votes[1] + votes[2] + votes[3])) {
 			if (tilt > -30)
 				tilt -= 3;
 		}
