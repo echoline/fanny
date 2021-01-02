@@ -16,8 +16,8 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <errno.h>
-#define EYES "/mnt/kinect/extra.jpg"
-#define TILT "/mnt/kinect/tilt"
+#define EYES "/home/eli/kinect/extra.jpg"
+#define TILT "/home/eli/kinect/tilt"
 #define BRAIN "/mnt/sdc1/anns/hEather.fann"
 #define STREAM "echoline.org:9000"
 #define LOCK "/tmp/streamlock"

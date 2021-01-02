@@ -16,6 +16,9 @@ create: create.o
 hEather: hEather-simple.o
 	gcc -o hEather hEather-simple.o -lm ${LDFLAGS}
 
+test: test.o conv.o
+	gcc -o test test.o conv.o ${LDFLAGS}
+
 clean:
 	rm -f *.o ${ALL}
 
