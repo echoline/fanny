@@ -53,3 +53,30 @@ conv_run(unsigned int kernels, struct fann **anns, fann_type *input)
 	return ret;
 }
 
+void
+conv_compute_MSE(unsigned int kernels, struct fann **anns, fann_type *desired_output)
+{
+	unsigned int j, e, k, s;
+	struct fann *ann;
+	fann_type *o = desired_output;
+
+	fann_compute_MSE(anns[kernels], desired_output);
+
+	s = anns[kernels]->num_input / kernels;
+	for(k = 0; k < kernels; k++) {
+		ann = anns[k];
+		e = s - ann->num_input;
+		for (j = 0; j < e; j++) {
+		}
+	}
+}
+
+void
+conv_train(unsigned int kernels, struct fann **anns, fann_type *input, fann_type *desired_output)
+{
+	conv_run(kernels, anns, inputs, desired_output);
+	conv_compute_MSE(kernels, anns, desired_output);
+	conv_backpropagate_MSE(kernels, anns);
+	conv_update_weights(kernels, anns);
+}
+
