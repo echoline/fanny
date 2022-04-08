@@ -125,6 +125,10 @@ main(int argc, char **argv) {
 		if (o > 0) fprintf(stderr, "partial image read: %d bytes left\n", o);
 
 		for (n = 0; n < 6; n++) {
+			if (depthmiddles[n] != NULL)
+				free(depthmiddles[n]);
+			if (edgesmiddles[n] != NULL)
+				free(edgesmiddles[n]);
 			depthmiddles[n] = malloc(20*15);
 			edgesmiddles[n] = malloc(20*15);
 			for (y = 0; y < 15; y++) for (x = 0; x < 20; x++) {
