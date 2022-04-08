@@ -13,8 +13,8 @@ fann1: fann1.o jpegdec.o comms.o
 create: create.o
 	gcc -o create create.o ${LDFLAGS}
 
-hEather: hEather-simple.o
-	gcc -o hEather hEather-simple.o -lm ${LDFLAGS}
+hEather: hEather-simple-bit.o
+	gcc -o hEather hEather-simple-bit.o -lm ${LDFLAGS}
 
 test: test.o conv.o
 	gcc -o test test.o conv.o ${LDFLAGS}
