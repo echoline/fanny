@@ -132,8 +132,8 @@ main(int argc, char **argv) {
 			depthmiddles[n] = malloc(20*15);
 			edgesmiddles[n] = malloc(20*15);
 			for (y = 0; y < 15; y++) for (x = 0; x < 20; x++) {
-				depthmiddles[n][y*20+x] = bbuf[y*20+x+n*20+60];
-				edgesmiddles[n][y*20+x] = bbuf[y*20+x+n*20+60+1800];
+				depthmiddles[n][y*20+x] = bbuf[y*120+x+n*20+60];
+				edgesmiddles[n][y*20+x] = bbuf[y*120+x+n*20+60+1800];
 			}
 		}
 
