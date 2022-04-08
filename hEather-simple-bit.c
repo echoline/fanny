@@ -162,10 +162,6 @@ main(int argc, char **argv) {
 			output[n] = depthmiddles[depthwinner][n] / 255.0;
 			output[300+n] = edgesmiddles[edgeswinner][n] / 255.0;
 		}
-		for (y = 0; y < 15; y++) for (x = 0; x < 20; x++) {
-			bbuf[y*width*4+(x+20*depthwinner)*4] |= (unsigned char)(results[(y*20+x)] * 255.0);
-			bbuf[y*width*4+(x+20*edgeswinner)*4] |= (unsigned char)(results[(y*20+x)+300] * 255.0);
-		}
 
 		memset(votes, 0, 5 * sizeof(int));
 		memcpy(motors, &results[600], 100 * sizeof(fann_type));
@@ -300,8 +296,8 @@ main(int argc, char **argv) {
 
 		memmove(&input[3600], input, 32400*sizeof(fann_type));
 		for (y = 0; y < 15; y++) for(x = 0; x < 120; x++) {
-			input[y*240+x*2] = bbuf[y*width*4+x*4+1] / 255.0;
-			input[y*240+x*2+1] = bbuf[y*width*4+x*4+2] / 255.0;
+			input[y*240+x*2] = bbuf[y*120+x+60] / 255.0;
+			input[y*240+x*2+1] = bbuf[y*120+x+60+1800] / 255.0;
 		}
 		memmove(&input[36000+2000], &input[36000], 21000*sizeof(fann_type));
 		memcpy(&input[36000], results, 1000*sizeof(fann_type));

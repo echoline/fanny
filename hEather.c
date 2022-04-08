@@ -207,7 +207,7 @@ main(int argc, char **argv) {
 	int *lasts;
 	fann_type *votes;
 	char *strbuf;
-	int nfd;
+	int nfd = -1;
 
 	ann = fann_create_from_file(BRAIN);
 	if (ann == NULL)
@@ -346,7 +346,7 @@ main(int argc, char **argv) {
 	fds[0].fd = 0;
 	fds[0].events = POLLIN | POLLHUP;
 
-	nfd = init_connection(STREAM);
+//	nfd = init_connection(STREAM);
 
 	while (running != 0) {
 		o = 640 * 480 * 4;
