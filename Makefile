@@ -13,13 +13,8 @@ fann1: fann1.o jpegdec.o comms.o
 create: create.o
 	gcc -o create create.o ${LDFLAGS}
 
-<<<<<<< HEAD
-hEather: hEather-simple-bit.o ann.o
-	gcc -o hEather hEather-simple-bit.o ann.o -lm -g -fopenmp
-=======
 hEather: hEather-simple-bit.o
 	gcc -o hEather hEather-simple-bit.o -lm ${LDFLAGS}
->>>>>>> parent of f0691a4 (different ann)
 
 test: test.o conv.o
 	gcc -o test test.o conv.o ${LDFLAGS}

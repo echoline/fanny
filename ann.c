@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
-<<<<<<< HEAD
 #include <omp.h>
-=======
-#include <CL/cl.h>
->>>>>>> parent of f0691a4 (different ann)
 #include "ann.h"
-#include "dot.cl"
 
 float
 activation_sigmoid(Neuron *in)
@@ -236,7 +231,6 @@ annrun(Ann *ann, float *input, cl_context context, cl_command_queue q)
 			O = ann->layers[l]->neurons[o];
 			O->sum = ann->weights[l-1]->values[ann->weights[l-1]->inputs][o]; // bias
 			sum = O->sum;
-<<<<<<< HEAD
 			switch(ann->layers[l-1]->n & 3) {
 				case 3:
 					sum += ann->layers[l-1]->neurons[2]->value * ann->weights[l-1]->values[2][o];
@@ -254,31 +248,6 @@ annrun(Ann *ann, float *input, cl_context context, cl_command_queue q)
 					+ ann->layers[l-1]->neurons[i+2]->value * ann->weights[l-1]->values[i+2][o]
 					+ ann->layers[l-1]->neurons[i+3]->value * ann->weights[l-1]->values[i+3][o];
 			}
-=======
-			for (i = 0; i < ann->layers[l-1]->n; i++)
-				sum += ann->layers[l-1]->neurons[i]->value * ann->weights[l-1]->values[i][o];
-/*			sz = ann->layers[l-1]->n;
-			rhs = malloc(sizeof(float) * sz);
-			for (i = 0; i < sz; i++) {
-				rhs[i] = ann->weights[l-1]->values[i][o];
-			}
-			nwg = sz / 4;
-			C = malloc(sizeof(float) * nwg);
-
-			cl_mem dA = clCreateBuffer(context, CL_MEM_READ_ONLY, sz * sizeof(float), NULL, &status);
-			cl_mem dB = clCreateBuffer(context, CL_MEM_READ_ONLY, sz * sizeof(float), NULL, &status);
-			cl_mem dC = clCreateBuffer(context, CL_MEM_WRITE_ONLY, nwg * sizeof(float), NULL, &status);
-//			status = clEnqueueWriteBuffer(q, dA, CL_FALSE, 0, sz * sizeof(float), input, 0, NULL, NULL);
-//			status = clEnqueueWriteBuffer(q, dB, CL_FALSE, 0, sz * sizeof(float), rhs, 0, NULL, NULL);
-
-			free(C);
-			free(rhs);
-
-			clReleaseMemObject(dA);
-			clReleaseMemObject(dB);
-			clReleaseMemObject(dC);
-//			clReleaseKernel(dot_kernel); */
->>>>>>> parent of f0691a4 (different ann)
 
 			O->sum = sum;
 			O->value = O->activation(O);
