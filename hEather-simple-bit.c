@@ -123,11 +123,6 @@ main(int argc, char **argv) {
 
 		if (o > 0) fprintf(stderr, "partial image read: %d bytes left\n", o);
 
-		close(eyesfd);
-		eyesfd = open(EYES, O_RDONLY);
-		if (eyesfd < 0)
-			return -1;
-
 		for (n = 0; n < 6; n++) {
 			if (depthmiddles[n] != NULL)
 				free(depthmiddles[n]);
