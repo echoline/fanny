@@ -1,3 +1,5 @@
+#include <CL/cl.h>
+
 typedef struct Ann Ann;
 typedef struct Layer Layer;
 typedef struct Neuron Neuron;
@@ -51,8 +53,8 @@ Weights *weightsinitrandscale(Weights*, float);
 Weights *weightsinitfloat(Weights*, float);
 Weights *weightsinitfloats(Weights*, float*);
 Weights *weightscreate(int, int, int);
-float *annrun(Ann*, float*);
-float anntrain(Ann*, float*, float*);
+float *annrun(Ann*, float*, cl_context, cl_command_queue);
+float anntrain(Ann*, float*, float*, cl_context, cl_command_queue);
 
 typedef struct Adam Adam;
 
@@ -66,8 +68,8 @@ struct Adam {
         int timestep;
 };
 
-float anntrain_adam(Ann*, float*, float*);
-float anntrain_adamax(Ann*, float*, float*);
+float anntrain_adam(Ann*, float*, float*, cl_context, cl_command_queue);
+float anntrain_adamax(Ann*, float*, float*, cl_context, cl_command_queue);
 
 void annsave(Ann*, char*);
 Ann *annload(char*);
