@@ -1,5 +1,5 @@
 LDFLAGS=-g `pkg-config --libs fann` `pkg-config --libs libjpeg` -fopenmp
-CFLAGS=-g `pkg-config --cflags fann` `pkg-config --cflags libjpeg` -fopenmp
+#CFLAGS=-g `pkg-config --cflags fann` `pkg-config --cflags libjpeg` -fopenmp
 ALL=create hEather
 
 all: ${ALL}
@@ -14,7 +14,7 @@ create: create-simple.o ann.o
 	gcc -o create create-simple.o ann.o
 
 hEather: hEather-simple-bit.o ann.o
-	gcc -o hEather hEather-simple-bit.o ann.o -lm -g
+	gcc -o hEather hEather-simple-bit.o ann.o -lm -g -fopenmp
 
 test: test.o conv.o
 	gcc -o test test.o conv.o ${LDFLAGS}

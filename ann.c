@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
+#include <omp.h>
 #include "ann.h"
 
 float
@@ -229,8 +230,23 @@ annrun(Ann *ann, float *input)
 			O = ann->layers[l]->neurons[o];
 			O->sum = ann->weights[l-1]->values[ann->weights[l-1]->inputs][o]; // bias
 			sum = O->sum;
-			for (i = 0; i < ann->layers[l-1]->n; i++)
-				sum += ann->layers[l-1]->neurons[i]->value * ann->weights[l-1]->values[i][o];
+			switch(ann->layers[l-1]->n & 3) {
+				case 3:
+					sum += ann->layers[l-1]->neurons[2]->value * ann->weights[l-1]->values[2][o];
+				case 2:
+					sum += ann->layers[l-1]->neurons[1]->value * ann->weights[l-1]->values[1][o];
+				case 1:
+					sum += ann->layers[l-1]->neurons[0]->value * ann->weights[l-1]->values[0][o];
+				case 0:
+					break;
+			}
+			#pragma omp parallel for reduction(+:sum)
+			for (i = ann->layers[l-1]->n & 3; i < ann->layers[l-1]->n; i += 4) {
+				sum += ann->layers[l-1]->neurons[i]->value * ann->weights[l-1]->values[i][o]
+					+ ann->layers[l-1]->neurons[i+1]->value * ann->weights[l-1]->values[i+1][o]
+					+ ann->layers[l-1]->neurons[i+2]->value * ann->weights[l-1]->values[i+2][o]
+					+ ann->layers[l-1]->neurons[i+3]->value * ann->weights[l-1]->values[i+3][o];
+			}
 
 			O->sum = sum;
 			O->value = O->activation(O);
@@ -274,16 +290,30 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 
 		for (o = 0; o < ann->layers[w+1]->n; o++) {
 			O = ann->layers[w+1]->neurons[o];
-			acc = O->gradient(O) * O->steepness;
 			sum = 1.0;
 			if (D2 != D) {
 				W = ann->weights[w + 1];
 				sum = 0.0;
-				for (n = 0; n < D2->outputs; n++)
-					sum += D2->values[o][n] * W->values[o][n];
+				switch(D2->outputs) {
+					case 3:
+						sum += D2->values[o][2] * W->values[o][2];
+					case 2:
+						sum += D2->values[o][1] * W->values[o][1];
+					case 1:
+						sum += D2->values[o][0] * W->values[o][0];
+					case 0:
+						break;
+				}
+				#pragma omp parallel for reduction(+:sum)
+				for (n = D2->outputs & 3; n < D2->outputs; n += 4)
+					sum += D2->values[o][n] * W->values[o][n]
+						+ D2->values[o][n+1] * W->values[o][n+1]
+						+ D2->values[o][n+2] * W->values[o][n+2]
+						+ D2->values[o][n+3] * W->values[o][n+3];
 			}
+			sum *= O->gradient(O) * O->steepness;
 			for (i = 0; i <= ann->layers[w]->n; i++) {
-			 	D->values[i][o] *= acc * sum;
+			 	D->values[i][o] *= sum;
 			}
 		}
 
@@ -297,8 +327,9 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 
 		for (i = 0; i <= W->inputs; i++) {
 			I = ann->layers[w]->neurons[i];
+			acc = ann->rate * I->value;
 			for (o = 0; o < W->outputs; o++) {
-				W->values[i][o] += D->values[i][o] * ann->rate * I->value;
+				W->values[i][o] += D->values[i][o] * acc;
 			}
 		}
 	}
