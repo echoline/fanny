@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <jpeglib.h>
 #include <math.h>
 #include <signal.h>
 #include <poll.h>
@@ -20,8 +19,6 @@
 
 struct Ann *ann = NULL;
 unsigned char running = 1;
-unsigned char gotsigchld = 1;
-char movechar = 0;
 
 void
 ctrlc(int sig) {
@@ -29,35 +26,18 @@ ctrlc(int sig) {
 		running = 0;
 }
 
-void
-sigchld(int sig) {
-	if (sig == SIGCHLD)
-		gotsigchld++;
-}
-
 int
 main(int argc, char **argv) {
-	int s, x, y, o, n, m;
+	int x, y, o, n;
 	int rc;
-	struct jpeg_decompress_struct cinfo;
-	struct jpeg_error_mgr jerr;
-	int row_stride, width, height, pixel_size;
-	int hwidth, hheight;
-	unsigned char *buf;
-	unsigned char *jbuf = malloc(640*4 + 1);
-	unsigned char *tmp;
-	unsigned char *depths[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
-	unsigned char *edgess[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *depthmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *edgesmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
-	unsigned char *bbuf = malloc(640*480*4);
+	unsigned char *bbuf = malloc(3660);
 	float *results;
 	float deptherror, edgeserror;
 	float lowestdeptherror, lowestedgeserror;
 	int depthwinner, edgeswinner;
-	Neuron *neuron;
-	FILE *file, *tiltfile = NULL;
-	int dx, dy;
+	FILE *tiltfile = NULL;
 	int counter;
 	int lowest;
 	int highest;
@@ -66,12 +46,6 @@ main(int argc, char **argv) {
 	float fidget, surprise, avg, sum;
 	int tilt = 0;
 	struct pollfd fds[1];
-	struct stat statbuf;
-	pid_t pid;
-	int jpegpipe[2];
-	unsigned char *depth;
-	unsigned char *edges;
-	unsigned char *bjpeg;
 	float *input;
 	float *output;
 	float *motors;
@@ -88,24 +62,18 @@ main(int argc, char **argv) {
 	if (ann == NULL)
 		return -1;
 
-	depth = malloc(640*480*4);
-	edges = malloc(640*480*4);
-	bjpeg = malloc(640*480*4);
-	input = malloc(60000 * sizeof(float));
-	output = malloc(1000 * sizeof(float));
+	input = calloc(60000, sizeof(float));
+	output = calloc(1000, sizeof(float));
 	motors = malloc(100 * sizeof(float));
-	lasts = malloc(100 * sizeof(int));
+	lasts = malloc(10 * sizeof(int));
 	votes = malloc(5 * sizeof(float));
 	strbuf = malloc(32);
 
-	memset(input, 0, 60000*sizeof(float));
-	memset(output, 0, 1000*sizeof(float));
-	for (n = 0; n < 100; n++) {
+	for (n = 0; n < 10; n++) {
 		lasts[n] = 600;
 	}
 
 //	signal(SIGINT, &ctrlc);
-	signal(SIGCHLD, &sigchld);
 
 	fds[0].fd = 0;
 	fds[0].events = POLLIN | POLLHUP;
@@ -141,6 +109,13 @@ main(int argc, char **argv) {
 			}
 		}
 
+/*
+		printf("%11s %11d %11d %11d %11d ", "k8", 0, 0, 20, 15);
+		fflush(stdout);
+		write(1, edgesmiddles[5], 20*15);
+		fflush(stdout);
+*/
+
 		results = annrun(ann, input);
 		lowestdeptherror = 300;
 		lowestedgeserror = 300;
@@ -160,7 +135,6 @@ main(int argc, char **argv) {
 				edgeswinner = n;
 			}
 		}
-//		depthwinner = edgeswinner = 5;
 		memcpy(&output[700], &results[700], 300*sizeof(float));
 		for (n = 0; n < 300; n++) {
 			output[n] = depthmiddles[depthwinner][n] / 255.0;
@@ -181,8 +155,6 @@ main(int argc, char **argv) {
 					goto END;
 			}
 		}
-		if (movechar != 0)
-			strbuf[0] = movechar;
 		switch (strbuf[0]) {
 			case 'w':
 				for (n = 0; n < 100; n++)
@@ -247,27 +219,28 @@ main(int argc, char **argv) {
 			if (tilt > -30)
 				tilt -= 3;
 		}
+		else {
+			printf("s\n");
+		}
 		if (tiltfile != NULL) {
 			if (fprintf(tiltfile, "%d\n", tilt) < 0) {
 				fclose(tiltfile);
 				tiltfile = NULL;
 			} else {
-				memmove(&input[59006], &input[59001], 990);
-				fscanf(tiltfile, "%d %f %f %f\n", &tilt, &input[59003], &input[59004], &input[59005]);
+				memmove(&input[59050], &input[59000], 950);
+				fscanf(tiltfile, "%d %f %f %f\n", &tilt, &input[59002], &input[59003], &input[59004]);
 			}
 		}
 		else {
 			tiltfile = fopen(TILT, "a+");
-			fprintf(stderr, "reopening tiltfile\n");
 		}
 		fflush(stdout);
-		movechar = 0;
 
 		// i don't get why this works
-		for (n = 0; n < 100; n++) {
+		for (n = 0; n < 100; n++)
 			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
-//			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
-		}
+//			motors[n] -= (motors[n] - avg) * sum * fidget + 0.01;
+
 		memcpy(&output[600], motors, 100 * sizeof(float));
 
 		memmove(&lasts[1], lasts, 9*sizeof(int));
@@ -287,25 +260,22 @@ main(int argc, char **argv) {
 			counter++;
 		lastlowest = lowest;
 		lasthighest = highest;
-		//fann_reset_MSE(ann);
 		fidget = counter / 10.0;
 		if (fidget > 1.0)
 			fidget = 1.0;
 		surprise = (lasthighest + lastlowest) / 100.0;
-		fprintf(stderr, "counter: %4d\tfidget: %2f\tsurprise: %10f mvar: %10f mavg: %10f\n", counter, fidget, surprise, sum, avg);
+		fprintf(stderr, "\r%d %d fidget: %.1f surprise: %.10f mvar: %.30f mavg: %.30f", edgeswinner, depthwinner, fidget, surprise, sum, avg);
 
 		memmove(&input[3600], input, 32400*sizeof(float));
-		for (y = 0; y < 15; y++) for(x = 0; x < 120; x++) {
-			input[y*240+x*2] = bbuf[y*120+x+60+1800] / 255.0;
-			input[y*240+x*2+1] = bbuf[y*120+x+60] / 255.0;
-		}
+		for (y = 0; y < 3600; y++)
+			input[y] = bbuf[y+60];
 		memmove(&input[36000+2000], &input[36000], 21000*sizeof(float));
 		memcpy(&input[36000], results, 1000*sizeof(float));
-		neuron = ann->layers[2]->neurons[0];
-		for (n = 0; n < 1000; n++)
-			input[36000+1000+n] = neuron[n].value;
-		input[59001] = fidget;
-		input[59002] = surprise;
+		memcpy(&input[36000+1000], ann->layers[2]->values, 1000 * sizeof(float));
+		input[59000] = fidget;
+		input[59001] = surprise;
+		for (n = 0; n < 9; n++)
+			memcpy(&input[59005+5*n], input, 5 * sizeof(float));
 	}
 
 END:

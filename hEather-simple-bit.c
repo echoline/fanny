@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <jpeglib.h>
 #include <math.h>
 #include <parallel_fann.h>
 #include <signal.h>
@@ -36,27 +35,16 @@ sigchld(int sig) {
 
 int
 main(int argc, char **argv) {
-	int s, x, y, o, n, m;
+	int x, y, o, n;
 	int rc;
-	struct jpeg_decompress_struct cinfo;
-	struct jpeg_error_mgr jerr;
-	int row_stride, width, height, pixel_size;
-	int hwidth, hheight;
-	unsigned char *buf;
-	unsigned char *jbuf = malloc(640*4 + 1);
-	unsigned char *tmp;
-	unsigned char *depths[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
-	unsigned char *edgess[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *depthmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *edgesmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
-	unsigned char *bbuf = malloc(640*480*4);
+	unsigned char *bbuf = malloc(3660);
 	fann_type *results;
 	fann_type deptherror, edgeserror;
 	fann_type lowestdeptherror, lowestedgeserror;
 	int depthwinner, edgeswinner;
-	struct fann_neuron *neuron;
-	FILE *file, *tiltfile = NULL;
-	int dx, dy;
+	FILE *tiltfile = NULL;
 	int counter;
 	int lowest;
 	int highest;
@@ -65,12 +53,6 @@ main(int argc, char **argv) {
 	fann_type fidget, surprise, avg, sum;
 	int tilt = 0;
 	struct pollfd fds[1];
-	struct stat statbuf;
-	pid_t pid;
-	int jpegpipe[2];
-	unsigned char *depth;
-	unsigned char *edges;
-	unsigned char *bjpeg;
 	fann_type *input;
 	fann_type *output;
 	fann_type *motors;
@@ -78,6 +60,7 @@ main(int argc, char **argv) {
 	fann_type *votes;
 	char *strbuf;
 	int eyesfd;
+	struct fann_neuron *neuron;
 
 	eyesfd = open(EYES, O_RDONLY);
 	if (eyesfd < 0)
@@ -89,9 +72,6 @@ main(int argc, char **argv) {
 	fann_set_activation_function_hidden(ann, FANN_LINEAR_PIECE_LEAKY);
 	fann_set_activation_function_output(ann, FANN_SIGMOID);
 
-	depth = malloc(640*480*4);
-	edges = malloc(640*480*4);
-	bjpeg = malloc(640*480*4);
 	input = malloc(60000 * sizeof(fann_type));
 	output = malloc(1000 * sizeof(fann_type));
 	motors = malloc(100 * sizeof(fann_type));
@@ -248,18 +228,19 @@ main(int argc, char **argv) {
 			if (tilt > -30)
 				tilt -= 3;
 		}
+		else
+			printf("s\n");
 		if (tiltfile != NULL) {
 			if (fprintf(tiltfile, "%d\n", tilt) < 0) {
 				fclose(tiltfile);
 				tiltfile = NULL;
 			} else {
-				memmove(&input[59006], &input[59001], 990);
-				fscanf(tiltfile, "%d %f %f %f\n", &tilt, &input[59003], &input[59004], &input[59005]);
+				memmove(&input[59005], &input[59000], 950);
+				fscanf(tiltfile, "%d %f %f %f\n", &tilt, &input[59002], &input[59003], &input[59004]);
 			}
 		}
 		else {
 			tiltfile = fopen(TILT, "a+");
-			fprintf(stderr, "reopening tiltfile\n");
 		}
 		fflush(stdout);
 		movechar = 0;
@@ -297,20 +278,21 @@ main(int argc, char **argv) {
 		if (fidget > 1.0)
 			fidget = 1.0;
 		surprise = (lasthighest + lastlowest) / 100.0;
-		fprintf(stderr, "fidget: %2f\tsurprise: %10f mvar: %10f mavg: %10f\n", fidget, surprise, sum, avg);
+		fprintf(stderr, "\r%d %d fidget: %.2f surprise: %.10f mvar: %.30f mavg: %.30f", edgeswinner, depthwinner, fidget, surprise, sum, avg);
 
 		memmove(&input[3600], input, 32400*sizeof(fann_type));
-		for (y = 0; y < 15; y++) for(x = 0; x < 120; x++) {
-			input[y*240+x*2] = bbuf[y*120+x+60] / 255.0;
-			input[y*240+x*2+1] = bbuf[y*120+x+60+1800] / 255.0;
-		}
+		for (y = 0; y < 3600; y++)
+			input[y] = bbuf[y+60] / 255.0;
 		memmove(&input[36000+2000], &input[36000], 21000*sizeof(fann_type));
 		memcpy(&input[36000], results, 1000*sizeof(fann_type));
 		neuron = ann->first_layer[2].first_neuron;
 		for (n = 0; n < 1000; n++)
 			input[36000+1000+n] = neuron[n].value;
-		input[59001] = fidget;
-		input[59002] = surprise;
+		input[59000] = fidget;
+		input[59001] = surprise;
+		for (n = 0; n < 9; n++) {
+			memcpy(&input[59005+5*n], input, 5 * sizeof(float));
+		}
 	}
 
 END:

@@ -15,7 +15,7 @@ activation_sigmoid(Neuron *in)
 float
 gradient_sigmoid(Neuron *in)
 {
-	float y = in->value;
+	float y = *(in->value) * in->steepness;
 	return y * (1.0 - y);
 }
 
@@ -28,18 +28,14 @@ activation_tanh(Neuron *in)
 float
 gradient_tanh(Neuron *in)
 {
-	return 1.0 - in->value*in->value;
+	return 1.0 - (*(in->value))*(*(in->value));
 }
 
 float
 activation_leaky_relu(Neuron *in)
 {
-	if (in->sum > 10000.0)
-		in->sum = 10000.0;
 	if (in->sum > 0)
 		return in->sum;
-	if (in->sum < -10000.0)
-		in->sum = -10000.0;
 	return in->sum * 0.01;
 }
 
@@ -47,8 +43,8 @@ float
 gradient_leaky_relu(Neuron *in)
 {
 	if (in->sum > 0)
-		return 1.0;
-	return 0.01;
+		return in->steepness;
+	return 0.01 * in->steepness;
 }
 
 Weights*
@@ -58,7 +54,7 @@ weightsinitfloats(Weights *in, float *init)
 
 	for (i = 0; i <= in->inputs; i++)
 		for (o = 0; o < in->outputs; o++)
-			in->values[i][o] = init[o];
+			in->values[i * in->outputs + o] = init[o];
 
 	return in;
 }
@@ -68,9 +64,10 @@ weightsinitfloat(Weights *in, float init)
 {
 	int i, o;
 
-	for (i = 0; i <= in->inputs; i++)
-		for (o = 0; o < in->outputs; o++)
-			in->values[i][o] = init;
+	o = (in->inputs+1) * in->outputs;
+
+	for (i = 0; i < o; i++)
+		in->values[i] = init;
 
 	return in;
 }
@@ -80,10 +77,11 @@ weightsinitrandscale(Weights *in, float scale)
 {
 	int i, o;
 
+	o = (in->inputs+1) * in->outputs;
+
 	srand(time(0));
-	for (i = 0; i <= in->inputs; i++)
-		for (o = 0; o < in->outputs; o++)
-			in->values[i][o] = (((float)rand()/RAND_MAX) - 0.5) * scale;
+	for (i = 0; i < o; i++)
+		in->values[i] = (((float)rand()/RAND_MAX) - 0.5) * scale;
 
 	return in;
 }
@@ -91,26 +89,27 @@ weightsinitrandscale(Weights *in, float scale)
 Weights*
 weightsinitrand(Weights *in)
 {
-	weightsinitrandscale(in, 2.0);
+	weightsinitrandscale(in, 0.2);
 	return in;
 }
 
 Neuron*
-neuroninit(Neuron *in, float (*activation)(Neuron*), float (*gradient)(Neuron*), float steepness)
+neuroninit(Neuron *in, float (*activation)(Neuron*), float (*gradient)(Neuron*), float steepness, float *v)
 {
 	in->activation = activation;
 	in->gradient = gradient;
 	in->steepness = steepness;
-	in->value = 1.0;
+	in->value = v;
+	*in->value = 1.0;
 	in->sum = 0;
 	return in;
 }
 
 Neuron*
-neuroncreate(float (*activation)(Neuron*), float (*gradient)(Neuron*), float steepness)
+neuroncreate(float (*activation)(Neuron*), float (*gradient)(Neuron*), float steepness, float *v)
 {
 	Neuron *ret = calloc(1, sizeof(Neuron));
-	neuroninit(ret, activation, gradient, steepness);
+	neuroninit(ret, activation, gradient, steepness, v);
 	return ret;
 }
 
@@ -122,8 +121,9 @@ layercreate(int num_neurons, float(*activation)(Neuron*), float(*gradient)(Neuro
 
 	ret->n = num_neurons;
 	ret->neurons = calloc(num_neurons+1, sizeof(Neuron*));
+	ret->values = calloc(num_neurons+1, sizeof(float));
 	for (i = 0; i <= ret->n; i++) {
-		ret->neurons[i] = neuroncreate(activation, gradient, rate);
+		ret->neurons[i] = neuroncreate(activation, gradient, rate, &ret->values[i]);
 	}
 	return ret;
 }
@@ -131,13 +131,10 @@ layercreate(int num_neurons, float(*activation)(Neuron*), float(*gradient)(Neuro
 Weights*
 weightscreate(int inputs, int outputs, int initialize)
 {
-	int i;
 	Weights *ret = calloc(1, sizeof(Weights));
 	ret->inputs = inputs;
 	ret->outputs = outputs;
-	ret->values = calloc(inputs+1, sizeof(float*));
-	for (i = 0; i <= inputs; i++)
-		ret->values[i] = calloc(outputs, sizeof(float));
+	ret->values = calloc(outputs * (inputs+1), sizeof(float));
 	if (initialize)
 		weightsinitrand(ret);
 	return ret;
@@ -151,7 +148,7 @@ anncreatev(int num_layers, int *v)
 	int i;
 
 	ret->n = num_layers;
-	ret->rate = 0.25;
+	ret->rate = 0.7;
 	ret->layers = calloc(num_layers, sizeof(Layer*));
 	ret->weights = calloc(num_layers-1, sizeof(Weights*));
 	ret->deltas = calloc(num_layers-1, sizeof(Weights*));
@@ -160,12 +157,12 @@ anncreatev(int num_layers, int *v)
 		arg = v[i];
 		if (arg < 0 || arg > 1000000)
 			arg = 0;
-		ret->layers[i] = layercreate(arg, activation_leaky_relu, gradient_leaky_relu, 1.0);
+		ret->layers[i] = layercreate(arg, activation_leaky_relu, gradient_leaky_relu, 0.5);
 	}
 	arg = v[i];
 	if (arg < 0 || arg > 1000000)
 		arg = 0;
-	ret->layers[num_layers-1] = layercreate(arg, activation_sigmoid, gradient_sigmoid, 1.0);
+	ret->layers[num_layers-1] = layercreate(arg, activation_sigmoid, gradient_sigmoid, 0.5);
 	for (i = 0; i < (num_layers-1); i++) {
 		ret->weights[i] = weightscreate(ret->layers[i]->n, ret->layers[i+1]->n, 1);
 		ret->deltas[i] = weightscreate(ret->layers[i]->n, ret->layers[i+1]->n, 0);
@@ -184,7 +181,7 @@ anncreate(int num_layers, ...)
 
 	va_start(args, num_layers);
 	ret->n = num_layers;
-	ret->rate = 0.25;
+	ret->rate = 0.7;
 	ret->layers = calloc(num_layers, sizeof(Layer*));
 	ret->weights = calloc(num_layers-1, sizeof(Weights*));
 	ret->deltas = calloc(num_layers-1, sizeof(Weights*));
@@ -193,12 +190,12 @@ anncreate(int num_layers, ...)
 		arg = va_arg(args, int);
 		if (arg < 0 || arg > 1000000)
 			arg = 0;
-		ret->layers[i] = layercreate(arg, activation_leaky_relu, gradient_leaky_relu, 1.0);
+		ret->layers[i] = layercreate(arg, activation_leaky_relu, gradient_leaky_relu, 0.5);
 	}
 	arg = va_arg(args, int);
 	if (arg < 0 || arg > 1000000)
 		arg = 0;
-	ret->layers[num_layers-1] = layercreate(arg, activation_sigmoid, gradient_sigmoid, 1.0);
+	ret->layers[num_layers-1] = layercreate(arg, activation_sigmoid, gradient_sigmoid, 0.5);
 	for (i = 0; i < (num_layers-1); i++) {
 		ret->weights[i] = weightscreate(ret->layers[i]->n, ret->layers[i+1]->n, 1);
 		ret->deltas[i] = weightscreate(ret->layers[i]->n, ret->layers[i+1]->n, 0);
@@ -210,72 +207,62 @@ anncreate(int num_layers, ...)
 }
 
 float*
-annrun(Ann *ann, float *input, cl_context context, cl_command_queue q)
+annrun(Ann *ann, float *input)
 {
-	int l, i, o;
+	int l, i, o, n;
 	int outputs = ann->layers[ann->n - 1]->n;
-	float *ret = calloc(outputs, sizeof(float));
+	float *ret = malloc(outputs * sizeof(float));
 	Neuron *O;
 	float sum;
-	float *rhs;
-	size_t sz;
-	size_t nwg;
-	float *C;
-	cl_uint status;
 
 	for (i = 0; i < ann->layers[0]->n; i++)
-		ann->layers[0]->neurons[i]->value = input[i];
+		ann->layers[0]->values[i] = input[i];
 
 	for (l = 1; l < ann->n; l++) {
-		for (o = 0; o < ann->layers[l]->n; o++) {
+		n = ann->layers[l]->n;
+		for (o = 0; o < n; o++) {
 			O = ann->layers[l]->neurons[o];
-			O->sum = ann->weights[l-1]->values[ann->weights[l-1]->inputs][o]; // bias
-			sum = O->sum;
-			switch(ann->layers[l-1]->n & 3) {
-				case 3:
-					sum += ann->layers[l-1]->neurons[2]->value * ann->weights[l-1]->values[2][o];
-				case 2:
-					sum += ann->layers[l-1]->neurons[1]->value * ann->weights[l-1]->values[1][o];
-				case 1:
-					sum += ann->layers[l-1]->neurons[0]->value * ann->weights[l-1]->values[0][o];
-				case 0:
-					break;
-			}
-			#pragma omp parallel for reduction(+:sum)
-			for (i = ann->layers[l-1]->n & 3; i < ann->layers[l-1]->n; i += 4) {
-				sum += ann->layers[l-1]->neurons[i]->value * ann->weights[l-1]->values[i][o]
-					+ ann->layers[l-1]->neurons[i+1]->value * ann->weights[l-1]->values[i+1][o]
-					+ ann->layers[l-1]->neurons[i+2]->value * ann->weights[l-1]->values[i+2][o]
-					+ ann->layers[l-1]->neurons[i+3]->value * ann->weights[l-1]->values[i+3][o];
-			}
+			sum = ann->weights[l-1]->values[ann->weights[l-1]->inputs * n + o]; // bias
 
-			O->sum = sum;
-			O->value = O->activation(O);
+			#pragma omp parallel for reduction(+:sum)
+			for (i = 0; i < ann->layers[l-1]->n; i++)
+				sum += ann->layers[l-1]->values[i] * ann->weights[l-1]->values[i * n + o];
+
+			O->sum = sum * O->steepness;
+
+			sum = 150/O->steepness;
+			if (O->sum > sum)
+				O->sum = sum;
+			else if (O->sum < -sum)
+				O->sum = -sum;
+
+			*O->value = O->activation(O);
 		}
 	}
 
 	for (o = 0; o < outputs; o++)
-		ret[o] = ann->layers[ann->n - 1]->neurons[o]->value;
+		ret[o] = ann->layers[ann->n - 1]->values[o];
 
 	return ret;
 }
 
 float
-anntrain(Ann *ann, float *inputs, float *outputs, cl_context context, cl_command_queue q)
+anntrain(Ann *ann, float *inputs, float *outputs)
 {
-	float *error = annrun(ann, inputs, context, q);
+	float *error = annrun(ann, inputs);
 	float ret = 0.0;
 	int noutputs = ann->layers[ann->n-1]->n;
-	float acc, sum;
-	int o, i, w, n;
-	Neuron *O, *I;
+	float sum;
+	int o, i, w, n, m;
+	Neuron *O;
 	Weights *W, *D, *D2;
+	float *A;
 
 	for (o = 0; o < noutputs; o++) {
 		// error = outputs[o] - result
 		error[o] -= outputs[o];
 		error[o] = -error[o];
-		ret += pow(error[o], 2.0) * 0.5;
+		ret += pow(error[o], 2.0);
 	}
 	D = ann->deltas[ann->n-2];
 	weightsinitfloats(D, error);
@@ -295,129 +282,15 @@ anntrain(Ann *ann, float *inputs, float *outputs, cl_context context, cl_command
 			if (D2 != D) {
 				W = ann->weights[w + 1];
 				sum = 0.0;
-				switch(D2->outputs) {
-					case 3:
-						sum += D2->values[o][2] * W->values[o][2];
-					case 2:
-						sum += D2->values[o][1] * W->values[o][1];
-					case 1:
-						sum += D2->values[o][0] * W->values[o][0];
-					case 0:
-						break;
-				}
+				m = o * D2->outputs;
 				#pragma omp parallel for reduction(+:sum)
-				for (n = D2->outputs & 3; n < D2->outputs; n += 4)
-					sum += D2->values[o][n] * W->values[o][n]
-						+ D2->values[o][n+1] * W->values[o][n+1]
-						+ D2->values[o][n+2] * W->values[o][n+2]
-						+ D2->values[o][n+3] * W->values[o][n+3];
-			}
-			sum *= O->gradient(O) * O->steepness;
-			for (i = 0; i <= ann->layers[w]->n; i++) {
-			 	D->values[i][o] *= sum;
-			}
-		}
-
-		D2 = D;
-	}
-
-	// update weights
-	for (w = 0; w < ann->n-1; w++) {
-		W = ann->weights[w];
-		D = ann->deltas[w];
-
-		for (i = 0; i <= W->inputs; i++) {
-			I = ann->layers[w]->neurons[i];
-			acc = ann->rate * I->value;
-			for (o = 0; o < W->outputs; o++) {
-				W->values[i][o] += D->values[i][o] * acc;
-			}
-		}
-	}
-
-	free(error);
-	return ret;
-}
-
-Ann*
-adaminit(Ann *ann)
-{
-	int i;
-	Adam *I = calloc(1, sizeof(Adam));
-
-	I->rate = 0.001;
-	I->beta1 = 0.9;
-	I->beta2 = 0.999;
-	I->epsilon = 10e-8;
-	I->timestep = 0;
-	I->first = calloc(ann->n-1, sizeof(Weights*));
-	I->second = calloc(ann->n-1, sizeof(Weights*));
-
-	for (i = 0; i < (ann->n-1); i++) {
-		I->first[i] = weightscreate(ann->layers[i]->n, ann->layers[i+1]->n, 0);
-		I->second[i] = weightscreate(ann->layers[i]->n, ann->layers[i+1]->n, 0);
-	}
-
-	ann->internal = I;
-
-	return ann;
-}
-
-float
-anntrain_adam(Ann *ann, float *inputs, float *outputs, cl_context context, cl_command_queue q)
-{
-	float *error = annrun(ann, inputs, context, q);
-	float ret = 0.0;
-	int noutputs = ann->layers[ann->n-1]->n;
-	float acc, sum, m, v;
-	int o, i, w, n;
-	Neuron *O, *I;
-	Weights *W, *D, *D2, *M, *V;
-	Adam *annI;
-
-	if (ann->internal == 0)
-		adaminit(ann);
-	annI = ann->internal;
-	annI->timestep++;
-
-	for (o = 0; o < noutputs; o++) {
-		// error = outputs[o] - result
-		error[o] -= outputs[o];
-		error[o] = -error[o];
-		ret += pow(error[o], 2.0) * 0.5;
-	}
-	D = ann->deltas[ann->n-2];
-	weightsinitfloats(D, error);
-	for (i = 0; i < (ann->n-2); i++) {
-		D = ann->deltas[i];
-		weightsinitfloat(D, 1.0);
-	}
-
-	// backpropagate MSE
-	D2 = ann->deltas[ann->n-2];
-	for (w = ann->n-2; w >= 0; w--) {
-		D = ann->deltas[w];
-		M = annI->first[w];
-		V = annI->second[w];
-
-		for (o = 0; o < ann->layers[w+1]->n; o++) {
-			O = ann->layers[w+1]->neurons[o];
-			acc = O->gradient(O) * O->steepness;
-			sum = 1.0;
-			if (D2 != D) {
-				W = ann->weights[w+1];
-				sum = 0.0;
 				for (n = 0; n < D2->outputs; n++)
-					sum += D2->values[o][n] * W->values[o][n];
+					sum += D2->values[m + n] * W->values[m + n];
 			}
-			for (i = 0; i <= ann->layers[w]->n; i++) {
-				I = ann->layers[w]->neurons[i];
-			 	D->values[i][o] *= acc * sum;
-				M->values[i][o] *= annI->beta1;
-				M->values[i][o] += (1.0 - annI->beta1) * D->values[i][o] * I->value;
-				V->values[i][o] *= annI->beta2;
-				V->values[i][o] += (1.0 - annI->beta2) * D->values[i][o] * D->values[i][o] * I->value * I->value;
-			}
+			sum *= O->gradient(O);
+			A = D->values;
+			for (i = 0; i <= ann->layers[w]->n; i++)
+				A[i * D->outputs + o] *= sum;
 		}
 
 		D2 = D;
@@ -426,93 +299,14 @@ anntrain_adam(Ann *ann, float *inputs, float *outputs, cl_context context, cl_co
 	// update weights
 	for (w = 0; w < ann->n-1; w++) {
 		W = ann->weights[w];
-		M = annI->first[w];
-		V = annI->second[w];
-
-		for (i = 0; i <= W->inputs; i++) {
-			for (o = 0; o < W->outputs; o++) {
-				m = M->values[i][o] / (annI->timestep < 100? (1.0 - pow(annI->beta1, annI->timestep)): 1.0);
-				v = V->values[i][o] / (annI->timestep < 10000? (1.0 - pow(annI->beta2, annI->timestep)): 1.0);
-				W->values[i][o] += (m / (sqrt(v) + annI->epsilon)) * annI->rate;
-			}
-		}
-	}
-
-	free(error);
-	return ret;
-}
-
-float
-anntrain_adamax(Ann *ann, float *inputs, float *outputs, cl_context context, cl_command_queue q)
-{
-	float *error = annrun(ann, inputs, context, q);
-	float ret = 0.0;
-	int noutputs = ann->layers[ann->n-1]->n;
-	float acc, sum, m, v;
-	int o, i, w, n;
-	Neuron *O, *I;
-	Weights *W, *D, *D2, *M, *V;
-	Adam *annI;
-
-	if (ann->internal == 0)
-		adaminit(ann);
-	annI = ann->internal;
-	annI->rate = 0.002;
-	annI->timestep++;
-
-	for (o = 0; o < noutputs; o++) {
-		// error = outputs[o] - result
-		error[o] -= outputs[o];
-		error[o] = -error[o];
-		ret += pow(error[o], 2.0) * 0.5;
-	}
-	D = ann->deltas[ann->n-2];
-	weightsinitfloats(D, error);
-	for (i = 0; i < (ann->n-2); i++) {
-		D = ann->deltas[i];
-		weightsinitfloat(D, 1.0);
-	}
-
-	// backpropagate MSE
-	D2 = ann->deltas[ann->n-2];
-	for (w = ann->n-2; w >= 0; w--) {
 		D = ann->deltas[w];
-		M = annI->first[w];
-		V = annI->second[w];
-
-		for (o = 0; o < ann->layers[w+1]->n; o++) {
-			O = ann->layers[w+1]->neurons[o];
-			acc = O->gradient(O) * O->steepness;
-			sum = 1.0;
-			if (D2 != D) {
-				W = ann->weights[w+1];
-				sum = 0.0;
-				for (n = 0; n < D2->outputs; n++)
-					sum += D2->values[o][n] * W->values[o][n];
-			}
-			for (i = 0; i <= ann->layers[w]->n; i++) {
-				I = ann->layers[w]->neurons[i];
-			 	D->values[i][o] *= acc * sum;
-				M->values[i][o] *= annI->beta1;
-				M->values[i][o] += (1.0 - annI->beta1) * D->values[i][o] * I->value;
-				V->values[i][o] = fmax(V->values[i][o] * annI->beta2, fabs(D->values[i][o] * I->value));
-			}
-		}
-
-		D2 = D;
-	}
-
-	// update weights
-	for (w = 0; w < ann->n-1; w++) {
-		W = ann->weights[w];
-		M = annI->first[w];
-		V = annI->second[w];
+		A = ann->layers[w]->values;
 
 		for (i = 0; i <= W->inputs; i++) {
+			sum = ann->rate * A[i];
+			m = i * W->outputs;
 			for (o = 0; o < W->outputs; o++) {
-				m = M->values[i][o];
-				v = V->values[i][o];
-				W->values[i][o] += (annI->rate/(1.0 - (annI->timestep < 100? pow(annI->beta1, annI->timestep): 0.0))) * (m/v);
+				W->values[m + o] += D->values[m + o] * sum;
 			}
 		}
 	}
@@ -520,72 +314,21 @@ anntrain_adamax(Ann *ann, float *inputs, float *outputs, cl_context context, cl_
 	free(error);
 	return ret;
 }
-
-/*int
-main()
-{
-	int i, counter = 0;
-	Ann *test = anncreate(3, 2, 4, 1);
-	float inputs[4][2] = { { 1.0, 1.0 }, {1.0, -1.0}, {-1.0, 1.0}, {-1.0, -1.0}};
-	float outputs[4] = { 0.0, 1.0, 1.0, 0.0 };
-	float error = 1000;
-
-	printf("testing anntrain()\n");
-	while (error >= 0.001) {
-		error = 0;
-		for (i = 0; i < 4; i++)
-			error += anntrain(test, inputs[i], &outputs[i]);	
-		counter++;
-		if (counter % 10000 == 1)
-			printf("error: %f\n", error);
-	}
-	printf("error: %f, done after %d epochs\n", error, counter);
-
-	error = 1000;
-	counter = 0;
-	for (i = test->n-2; i >= 0; i--)
-		weightsinitrand(test->weights[i]);
-
-	printf("testing anntrain_adam()\n");
-	while (error >= 0.001) {
-		error = 0;
-		for (i = 0; i < 4; i++)
-			error += anntrain_adam(test, inputs[i], &outputs[i]);	
-		counter++;
-		if (counter % 10000 == 1)
-			printf("error: %f\n", error);
-	}
-	printf("error: %f, done after %d epochs\n", error, counter);
-
-	error = 1000;
-	counter = 0;
-	for (i = test->n-2; i >= 0; i--)
-		weightsinitrand(test->weights[i]);
-
-	printf("testing anntrain_adamax()\n");
-	while (error >= 0.001) {
-		error = 0;
-		for (i = 0; i < 4; i++)
-			error += anntrain_adamax(test, inputs[i], &outputs[i]);	
-		counter++;
-		if (counter % 10000 == 1)
-			printf("error: %f\n", error);
-	}
-	printf("error: %f, done after %d epochs\n", error, counter);
-}*/
 
 void
 annsave(Ann *ann, char *file) {
-	int i, j, k;
+	int i, j, k, n;
 	FILE *f = fopen(file, "w");
 	fprintf(f, "%d ", ann->n);
 	for (i = 0; i < ann->n; i++)
 		fprintf(f, "%d ", ann->layers[i]->n);
 	fprintf(f, "\n");
 	for (i = 0; i < (ann->n-1); i++) {
-		for(j = 0; j <= ann->layers[i]->n; j++)
-			for (k = 0; k < ann->layers[i+1]->n; k++)
-				fprintf(f, "%f ", ann->weights[i]->values[j][k]);
+		for(j = 0; j <= ann->layers[i]->n; j++) {
+			n = ann->layers[i+1]->n;
+			for (k = 0; k < n; k++)
+				fprintf(f, "%f ", ann->weights[i]->values[j * n + k]);
+		}
 		fprintf(f, "\n");
 	}
 	fclose(f);
@@ -605,12 +348,14 @@ annload(char *file) {
 	ann = anncreatev(n, ls);
 	free(ls);
 	for (i = 0; i < (ann->n-1); i++)
-		for(j = 0; j <= ann->layers[i]->n; j++)
-			for (k = 0; k < ann->layers[i+1]->n; k++)
-				if (fscanf(f, "%f", &(ann->weights[i]->values[j][k])) == EOF) {
+		for(j = 0; j <= ann->layers[i]->n; j++) {
+			n = ann->layers[i+1]->n;
+			for (k = 0; k < n; k++)
+				if (fscanf(f, "%f", &(ann->weights[i]->values[j * n + k])) == EOF) {
 					fclose(f);
 					return ann;
 				}
+		}
 	fclose(f);
 	return ann;
 }
