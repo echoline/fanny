@@ -19,18 +19,11 @@
 struct fann *ann = NULL;
 unsigned char running = 1;
 unsigned char gotsigchld = 1;
-char movechar = 0;
 
 void
 ctrlc(int sig) {
 	if (sig == SIGINT)
 		running = 0;
-}
-
-void
-sigchld(int sig) {
-	if (sig == SIGCHLD)
-		gotsigchld++;
 }
 
 int
@@ -86,7 +79,6 @@ main(int argc, char **argv) {
 	}
 
 //	signal(SIGINT, &ctrlc);
-	signal(SIGCHLD, &sigchld);
 
 	fds[0].fd = 0;
 	fds[0].events = POLLIN | POLLHUP;
@@ -162,8 +154,6 @@ main(int argc, char **argv) {
 					goto END;
 			}
 		}
-		if (movechar != 0)
-			strbuf[0] = movechar;
 		switch (strbuf[0]) {
 			case 'w':
 				for (n = 0; n < 100; n++)
@@ -243,13 +233,11 @@ main(int argc, char **argv) {
 			tiltfile = fopen(TILT, "a+");
 		}
 		fflush(stdout);
-		movechar = 0;
 
 		// i don't get why this works
-		for (n = 0; n < 100; n++) {
+		for (n = 0; n < 100; n++)
 			motors[n] -= (motors[n] - avg) - (0.2 - avg) * fidget;
 //			motors[n] -= (motors[n] - avg - 0.2) * fidget * motors[n] + 0.00001;
-		}
 		memcpy(&output[600], motors, 100 * sizeof(fann_type));
 
 //		struct fann_train_data *fanndata = fann_create_train_array(1, 60000, input, 1000, output);
@@ -278,7 +266,7 @@ main(int argc, char **argv) {
 		if (fidget > 1.0)
 			fidget = 1.0;
 		surprise = (lasthighest + lastlowest) / 100.0;
-		fprintf(stderr, "\r%d %d fidget: %.2f surprise: %.10f mvar: %.30f mavg: %.30f", edgeswinner, depthwinner, fidget, surprise, sum, avg);
+		fprintf(stderr, "\r%d %d fidget: %.1f surprise: %.10f mvar: %.80f mavg: %.80f", edgeswinner, depthwinner, fidget, surprise, sum, avg);
 
 		memmove(&input[3600], input, 32400*sizeof(fann_type));
 		for (y = 0; y < 3600; y++)
@@ -290,9 +278,8 @@ main(int argc, char **argv) {
 			input[36000+1000+n] = neuron[n].value;
 		input[59000] = fidget;
 		input[59001] = surprise;
-		for (n = 0; n < 9; n++) {
+		for (n = 0; n < 9; n++)
 			memcpy(&input[59005+5*n], input, 5 * sizeof(float));
-		}
 	}
 
 END:

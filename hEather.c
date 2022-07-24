@@ -68,25 +68,6 @@ halfscalealloc(int width, int height, unsigned char *data) {
 }
 
 static unsigned char*
-doublescalealloc(int width, int height, unsigned char *data) {
-	int length = width * height;
-	int newlength = length * 4;
-	unsigned char *newdata;
-	int x, y;
-
-	newdata = malloc(newlength);
-
-	for (x = 0; x < width; x++) for(y = 0; y < height; y++) {
-		newdata[y*2*width+(x*2)] = data[y*width+x];
-		newdata[(y+1)*2*width+(x*2)] = data[y*width+x];
-		newdata[(y+1)*2*width+(x*2+1)] = data[y*width+x];
-		newdata[y*2*width+(x*2+1)] = data[y*width+x];
-	}
-
-	return newdata;
-}
-
-static unsigned char*
 middleextract(int width, int height, unsigned char *data) {
 	unsigned char *ret;
 	int hwidth, hheight, x, y, i, j, m, n;
@@ -164,17 +145,14 @@ main(int argc, char **argv) {
 	Display *d;
 	Window w;
 	XEvent e;
-	int s, x, y, o, n, m;
+	int s, x, y, o, n;
 	GC gc;
 	XImage *i;
 	int rc;
 	struct jpeg_decompress_struct cinfo;
 	struct jpeg_error_mgr jerr;
-	int row_stride, width, height, pixel_size;
-	int hwidth, hheight;
-	unsigned char *buf;
+	int width, height, pixel_size;
 	unsigned char *jbuf = malloc(640*4 + 1);
-	unsigned char *tmp;
 	unsigned char *depths[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *edgess[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
 	unsigned char *depthmiddles[] = {NULL, NULL, NULL, NULL, NULL, NULL, };
@@ -186,7 +164,6 @@ main(int argc, char **argv) {
 	int depthwinner, edgeswinner;
 	struct fann_neuron *neuron;
 	FILE *file, *tiltfile;
-	int dx, dy;
 	int counter;
 	int lowest;
 	int highest;
@@ -213,6 +190,7 @@ main(int argc, char **argv) {
 	if (ann == NULL)
 		return -1;
 	fann_set_activation_function_hidden(ann, FANN_LINEAR_PIECE_LEAKY);
+	fann_set_activation_function_output(ann, FANN_SIGMOID);
 
 	if (pipe(jpegpipe) == -1)
 		return -1;
@@ -244,7 +222,6 @@ main(int argc, char **argv) {
 			width = cinfo.output_width;
 			height = cinfo.output_height;
 			pixel_size = cinfo.output_components;
-			row_stride = width * pixel_size;
 
 			if (pixel_size == 3) {
 				while (cinfo.output_scanline < cinfo.output_height) {
@@ -318,10 +295,7 @@ main(int argc, char **argv) {
 	jpeg_start_decompress(&cinfo);
 	width = cinfo.output_width;
 	height = cinfo.output_height;
-	hwidth = width / 2;
-	hheight = height / 2;
 	pixel_size = cinfo.output_components;
-	row_stride = width * pixel_size;
 
 	while (cinfo.output_scanline < cinfo.output_height)
 		jpeg_read_scanlines(&cinfo, &jbuf, 1);
@@ -495,25 +469,27 @@ main(int argc, char **argv) {
 
 		if (votes[0] > (votes[1] + votes[2] + votes[3] + votes[4]))
 			printf("w\n");
-		if (votes[1] > (votes[0] + votes[2] + votes[3] + votes[4]))
+		else if (votes[1] > (votes[0] + votes[2] + votes[3] + votes[4]))
 			printf("a\n");
-		if (votes[2] > (votes[0] + votes[1] + votes[3] + votes[4]))
+		else if (votes[2] > (votes[0] + votes[1] + votes[3] + votes[4]))
 			printf("d\n");
-		if (votes[3] > (votes[0] + votes[1] + votes[2] + votes[4])) {
+		else if (votes[3] > (votes[0] + votes[1] + votes[2] + votes[4])) {
 			if (tilt < 30)
 				tilt += 3;
 		}
-		if (votes[4] > (votes[0] + votes[1] + votes[2] + votes[3])) {
+		else if (votes[4] > (votes[0] + votes[1] + votes[2] + votes[3])) {
 			if (tilt > -30)
 				tilt -= 3;
 		}
+		else
+			printf("s\n");
 		if (tiltfile != NULL) {
 			if (fprintf(tiltfile, "%d\n", tilt) < 0) {
 				fclose(tiltfile);
 				tiltfile = NULL;
 			} else {
-				memmove(&input[59006], &input[59001], 990);
-				fscanf(tiltfile, "%d %f %f %f\n", &tilt, &input[59003], &input[59004], &input[59005]);
+				memmove(&input[59050], &input[59000], 950);
+				fscanf(tiltfile, "%d %f %f %f\n", &tilt, &input[59002], &input[59003], &input[59004]);
 			}
 		}
 		else {
@@ -556,20 +532,22 @@ main(int argc, char **argv) {
 		if (fidget > 1.0)
 			fidget = 1.0;
 		surprise = (lasthighest + lastlowest) / 100.0;
-		fprintf(stderr, "fidget: %2f\tsurprise: %10f mvar: %10f mavg: %10f\n", fidget, surprise, sum, avg);
+		fprintf(stderr, "\r%d %d fidget: %.1f surprise: %.10f mvar: %.80f mavg: %.80f", edgeswinner, depthwinner, fidget, surprise, sum, avg);
 
 		memmove(&input[3600], input, 32400*sizeof(fann_type));
 		for (y = 0; y < 15; y++) for(x = 0; x < 120; x++) {
-			input[y*240+x*2] = bbuf[y*width*4+x*4+1] / 255.0;
-			input[y*240+x*2+1] = bbuf[y*width*4+x*4+2] / 255.0;
+			input[y*120+x] = bbuf[y*width*4+x*4+1] / 255.0;
+			input[y*120+x+1800] = bbuf[y*width*4+x*4+2] / 255.0;
 		}
 		memmove(&input[36000+2000], &input[36000], 21000*sizeof(fann_type));
 		memcpy(&input[36000], results, 1000*sizeof(fann_type));
 		neuron = ann->first_layer[2].first_neuron;
 		for (n = 0; n < 1000; n++)
-			input[36000+1000+n] = neuron[n].value;
-		input[59001] = fidget;
-		input[59002] = surprise;
+			input[36000+1000+n] = *(neuron[n].value);
+		input[59000] = fidget;
+		input[59001] = surprise;
+		for (n = 0; n < 9; n++)
+			memcpy(&input[59005+5*n], input, 5 * sizeof(float));
 
 		for (n = 0; n < 60000; n++) {
 			bbuf[(15*width+n)*4] = (unsigned char)(input[n] * 255.0);
@@ -599,7 +577,7 @@ main(int argc, char **argv) {
 
 		i = XCreateImage(d, DefaultVisual(d, s), DefaultDepth(d, s),
 			ZPixmap, 0, 0, width, height, 32, 0);
-		i->data = bbuf;
+		i->data = (char*)bbuf;
 
 		XPutImage (d, w, gc, i, 0, 0, 0, 0, width, height);
 

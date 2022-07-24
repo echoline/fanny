@@ -264,11 +264,11 @@ main(int argc, char **argv) {
 		if (fidget > 1.0)
 			fidget = 1.0;
 		surprise = (lasthighest + lastlowest) / 100.0;
-		fprintf(stderr, "\r%d %d fidget: %.1f surprise: %.10f mvar: %.30f mavg: %.30f", edgeswinner, depthwinner, fidget, surprise, sum, avg);
+		fprintf(stderr, "\r%d %d fidget: %.1f surprise: %.10f mvar: %.80f mavg: %.80f", edgeswinner, depthwinner, fidget, surprise, sum, avg);
 
 		memmove(&input[3600], input, 32400*sizeof(float));
 		for (y = 0; y < 3600; y++)
-			input[y] = bbuf[y+60];
+			input[y] = bbuf[y+60] / 255.0;
 		memmove(&input[36000+2000], &input[36000], 21000*sizeof(float));
 		memcpy(&input[36000], results, 1000*sizeof(float));
 		memcpy(&input[36000+1000], ann->layers[2]->values, 1000 * sizeof(float));

@@ -28,7 +28,7 @@ activation_tanh(Neuron *in)
 float
 gradient_tanh(Neuron *in)
 {
-	return 1.0 - (*(in->value))*(*(in->value));
+	return (1.0 - (*(in->value))*(*(in->value))) * in->steepness;
 }
 
 float
@@ -209,11 +209,12 @@ anncreate(int num_layers, ...)
 float*
 annrun(Ann *ann, float *input)
 {
-	int l, i, o, n;
+	int l, i, o, n, m;
 	int outputs = ann->layers[ann->n - 1]->n;
 	float *ret = malloc(outputs * sizeof(float));
 	Neuron *O;
 	float sum;
+	float *A, *B;
 
 	for (i = 0; i < ann->layers[0]->n; i++)
 		ann->layers[0]->values[i] = input[i];
@@ -222,11 +223,27 @@ annrun(Ann *ann, float *input)
 		n = ann->layers[l]->n;
 		for (o = 0; o < n; o++) {
 			O = ann->layers[l]->neurons[o];
-			sum = ann->weights[l-1]->values[ann->weights[l-1]->inputs * n + o]; // bias
+			A = ann->layers[l-1]->values;
+			B = ann->weights[l-1]->values;
+
+			sum = B[ann->weights[l-1]->inputs * n + o]; // bias
+
+			m = ann->layers[l-1]->n;
+
+			switch(m & 3) {
+			case 3:
+				sum += A[2] * B[2 * n + o];
+			case 2:
+				sum += A[1] * B[n + o];
+			case 1:
+				sum += A[0] * B[o];
+			case 0:
+				break;
+			}
 
 			#pragma omp parallel for reduction(+:sum)
-			for (i = 0; i < ann->layers[l-1]->n; i++)
-				sum += ann->layers[l-1]->values[i] * ann->weights[l-1]->values[i * n + o];
+			for (i = m & 3; i < m; i += 4)
+				sum += A[i] * B[i * n + o] + A[i+1] * B[(i+1) * n + o] + A[i+2] * B[(i+2) * n + o] + A[i+3] * B[(i+3) * n + o];
 
 			O->sum = sum * O->steepness;
 
@@ -255,8 +272,9 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 	float sum;
 	int o, i, w, n, m;
 	Neuron *O;
-	Weights *W, *D, *D2;
-	float *A;
+	Weights *W;
+	Weights *D, *D2;
+	float *A, *B, *C;
 
 	for (o = 0; o < noutputs; o++) {
 		// error = outputs[o] - result
@@ -271,6 +289,7 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 		weightsinitfloat(D, 1.0);
 	}
 
+
 	// backpropagate MSE
 	D2 = ann->deltas[ann->n-2];
 	for (w = ann->n-2; w >= 0; w--) {
@@ -283,14 +302,31 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 				W = ann->weights[w + 1];
 				sum = 0.0;
 				m = o * D2->outputs;
+				A = &D2->values[m];
+				B = &W->values[m];
+
+				switch(D2->outputs & 3) {
+				case 3:
+					sum += A[2] * B[2];
+				case 2:
+					sum += A[1] * B[1];
+				case 1:
+					sum += A[0] * B[0];
+				case 0:
+					break;
+				}
+
+				m = D2->outputs;
 				#pragma omp parallel for reduction(+:sum)
-				for (n = 0; n < D2->outputs; n++)
-					sum += D2->values[m + n] * W->values[m + n];
+				for (n = m & 3; n < m; n += 4)
+					sum += A[n] * B[n] + A[n + 1] * B[n + 1] + A[n + 2] * B[n + 2] + A[n + 3] * B[n + 3];
 			}
 			sum *= O->gradient(O);
-			A = D->values;
-			for (i = 0; i <= ann->layers[w]->n; i++)
-				A[i * D->outputs + o] *= sum;
+			A = &D->values[o];
+			n = ann->layers[w]->n;
+			#pragma omp parallel for
+			for (i = 0; i <= n; i++)
+				A[i * D->outputs] *= sum;
 		}
 
 		D2 = D;
@@ -301,13 +337,18 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 		W = ann->weights[w];
 		D = ann->deltas[w];
 		A = ann->layers[w]->values;
+		n = W->outputs;
+		m = W->inputs;
 
-		for (i = 0; i <= W->inputs; i++) {
+		for (i = 0; i <= m; i++) {
 			sum = ann->rate * A[i];
-			m = i * W->outputs;
-			for (o = 0; o < W->outputs; o++) {
-				W->values[m + o] += D->values[m + o] * sum;
-			}
+			o = i * W->outputs;
+			B = &W->values[o];
+			C = &D->values[o];
+
+			#pragma omp parallel for
+			for (o = 0; o < n; o++)
+				B[o] += C[o] * sum;
 		}
 	}
 
