@@ -278,9 +278,14 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 
 	for (o = 0; o < noutputs; o++) {
 		// error = outputs[o] - result
-		error[o] -= outputs[o];
-		error[o] = -error[o];
+		error[o] = outputs[o] - error[o];
 		ret += pow(error[o], 2.0);
+		if(error[o] < -.9999999)
+			error[o] = -17.0;
+		else if(error[o] > .9999999)
+			error[o] = 17.0;
+		else
+			error[o] = log((1.0 + error[o]) / (1.0 - error[o]));
 	}
 	D = ann->deltas[ann->n-2];
 	weightsinitfloats(D, error);
@@ -305,7 +310,8 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 				A = &D2->values[m];
 				B = &W->values[m];
 
-				switch(D2->outputs & 3) {
+				m = D2->outputs;
+				switch(m & 3) {
 				case 3:
 					sum += A[2] * B[2];
 				case 2:
@@ -316,7 +322,6 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 					break;
 				}
 
-				m = D2->outputs;
 				#pragma omp parallel for reduction(+:sum)
 				for (n = m & 3; n < m; n += 4)
 					sum += A[n] * B[n] + A[n + 1] * B[n + 1] + A[n + 2] * B[n + 2] + A[n + 3] * B[n + 3];
@@ -342,7 +347,7 @@ anntrain(Ann *ann, float *inputs, float *outputs)
 
 		for (i = 0; i <= m; i++) {
 			sum = ann->rate * A[i];
-			o = i * W->outputs;
+			o = i * n;
 			B = &W->values[o];
 			C = &D->values[o];
 

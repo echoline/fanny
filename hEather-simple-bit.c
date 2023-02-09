@@ -275,7 +275,7 @@ main(int argc, char **argv) {
 		memcpy(&input[36000], results, 1000*sizeof(fann_type));
 		neuron = ann->first_layer[2].first_neuron;
 		for (n = 0; n < 1000; n++)
-			input[36000+1000+n] = neuron[n].value;
+			input[36000+1000+n] = (*neuron[n].value);
 		input[59000] = fidget;
 		input[59001] = surprise;
 		for (n = 0; n < 9; n++)

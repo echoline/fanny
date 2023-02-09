@@ -13,8 +13,8 @@ fann1: fann1.o jpegdec.o comms.o
 create: create.o ann.o
 	gcc -o create create.o ann.o -g -fopenmp -Wall -lm
 
-hEather: hEather.o
-	gcc -o hEather hEather.o -lm ${LDFLAGS}
+hEather: hEather-simple-bit.o
+	gcc -o hEather hEather-simple-bit.o -lm ${LDFLAGS}
 
 xor: xor.o ann.o
 	gcc -o xor xor.o ann.o -lm -g -fopenmp -Wall
